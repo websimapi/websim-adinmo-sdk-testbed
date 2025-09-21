@@ -8,6 +8,9 @@ const defaultConfig = {
   pollingInterval: 30000
 };
 
+/* @tweakable mock network latency (ms) for the local adapter */
+const mockLatencyMs = 300;
+
 let sdk = null;
 let banner = null;
 let rect = null;
