@@ -54,7 +54,7 @@ async function initSDK() {
   // Attach mock if requested
   if (sdk.config.baseUrl === 'mock') {
     const { attachAdInMoMock } = await import('./mock-adapter.js');
-    detachMock = attachAdInMoMock(sdk, { latencyMs: 250 });
+    detachMock = attachAdInMoMock(sdk, { latencyMs: mockLatencyMs });
   }
 
   await sdk.initialize();
@@ -183,4 +183,3 @@ window.addEventListener('DOMContentLoaded', () => {
   // Optional: auto init with mock for instant demo
   initSDK().catch(e => logLine('auto init error', e.message));
 });
-
