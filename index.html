@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- ...existing content... -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AdInMo SDK Testbed</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
+  <!-- ...existing content... -->
+</head>
+<body>
+  <!-- ...existing content... -->
+  <header class="site-header">
+    <h1>AdInMo SDK Testbed</h1>
+    <div class="controls">
+      <label>
+        Game Key
+        <input id="gameKey" type="text" placeholder="enter your game key" />
+      </label>
+      <label>
+        Environment
+        <select id="environment">
+          <option value="production">production</option>
+          <option value="staging">staging</option>
+        </select>
+      </label>
+      <label>
+        Base URL
+        <select id="baseUrl">
+          <option value="mock">mock (local)</option>
+          <option value="https://api.adinmo.com">https://api.adinmo.com</option>
+        </select>
+      </label>
+      <label>
+        Poll (ms)
+        <input id="pollInterval" type="number" min="2000" step="1000" value="30000" />
+      </label>
+      <label class="inline">
+        <input id="debugMode" type="checkbox" />
+        Debug Mode
+      </label>
+      <button id="initBtn">Initialize SDK</button>
+    </div>
+  </header>
+
+  <main class="content">
+    <section class="playfield">
+      <div id="adContainer" class="ad-container">
+        <!-- Placements will be injected here -->
+      </div>
+      <div class="actions">
+        <div class="group">
+          <h3>Banner Placement</h3>
+          <button id="bannerLoad">Load</button>
+          <button id="bannerShow">Show</button>
+          <button id="bannerHide">Hide</button>
+          <label>W <input id="bannerW" type="number" value="728" /></label>
+          <label>H <input id="bannerH" type="number" value="90" /></label>
+          <label>X <input id="bannerX" type="number" value="16" /></label>
+          <label>Y <input id="bannerY" type="number" value="16" /></label>
+          <button id="bannerApply">Apply</button>
+        </div>
+
+        <div class="group">
+          <h3>Rectangle Placement</h3>
+          <button id="rectLoad">Load</button>
+          <button id="rectShow">Show</button>
+          <button id="rectHide">Hide</button>
+          <label>W <input id="rectW" type="number" value="300" /></label>
+          <label>H <input id="rectH" type="number" value="250" /></label>
+          <label>X <input id="rectX" type="number" value="calc(100% - 316)" /></label>
+          <label>Y <input id="rectY" type="number" value="calc(100% - 266)" /></label>
+          <button id="rectApply">Apply</button>
+        </div>
+
+        <div class="group">
+          <h3>Quick Actions</h3>
+          <button id="loadAll">Load All</button>
+          <button id="showAll">Show All</button>
+          <button id="hideAll">Hide All</button>
+          <button id="randomize">Randomize Positions</button>
+        </div>
+      </div>
+    </section>
+
+    <aside class="log">
+      <div class="log-header">
+        <h3>Event Log</h3>
+        <button id="clearLog">Clear</button>
+      </div>
+      <pre id="logOutput" class="log-output"></pre>
+    </aside>
+  </main>
+
+  <script src="./adinmo-sdk.js"></script>
+  <script src="./mock-adapter.js"></script>
+  <script type="module" src="./app.js"></script>
+  <!-- ...existing content... -->
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>
+

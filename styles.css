@@ -1,0 +1,58 @@
+/* ...existing styles... */
+:root {
+  --gap: 12px;
+  --radius: 10px;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: #fff;
+  color: #111;
+  font-family: "Noto Sans", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+.site-header {
+  padding: 16px;
+  border-bottom: 1px solid #eee;
+  display: grid;
+  gap: var(--gap);
+}
+.site-header h1 { margin: 0; font-size: 18px; }
+.controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--gap);
+  align-items: end;
+}
+.controls label { display: grid; gap: 6px; font-size: 12px; }
+.controls input, .controls select, .controls button {
+  padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; background: #fff;
+}
+.controls button { cursor: pointer; border-color: #ccc; }
+.controls .inline { align-items: center; grid-auto-flow: column; grid-auto-columns: max-content; }
+.content {
+  display: grid; grid-template-columns: 1fr 360px; gap: var(--gap); padding: var(--gap);
+  height: calc(100% - 86px);
+}
+.playfield {
+  position: relative; border: 1px solid #eee; border-radius: var(--radius); min-height: 480px; overflow: hidden;
+}
+.ad-container { position: relative; width: 100%; height: 100%; }
+.actions {
+  position: absolute; left: var(--gap); bottom: var(--gap);
+  background: rgba(255,255,255,0.9); border: 1px solid #eee; border-radius: 8px; padding: var(--gap);
+  display: grid; gap: var(--gap);
+}
+.group { display: grid; gap: 8px; }
+.group h3 { margin: 0 0 4px 0; font-size: 14px; }
+.group label { font-size: 12px; display: inline-grid; grid-auto-flow: column; gap: 6px; align-items: center; }
+.group button { padding: 6px 10px; border-radius: 6px; border: 1px solid #ddd; background: #fff; cursor: pointer; }
+.log {
+  border: 1px solid #eee; border-radius: var(--radius); overflow: hidden; display: grid; grid-template-rows: auto 1fr;
+}
+.log-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid #eee; }
+.log-output { margin: 0; padding: 12px; overflow: auto; height: 100%; background: #fafafa; }
+/* Placement hover micro-anim */
+.adinmo-placement { transition: transform 0.2s ease, opacity 0.2s ease; }
+/* ...existing styles... */
+
