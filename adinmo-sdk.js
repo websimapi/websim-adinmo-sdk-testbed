@@ -38,7 +38,7 @@
             this.messagePoller = null;
             this.isPolling = false;
             
-            // IAP Integration - from Unity AdInMoIapProxy
+            // IAP Integration - from Unity AdInmoIapProxy
             this.iapCallbacks = {
                 purchaseRequested: null,
                 getPriceCallback: null,
@@ -124,16 +124,16 @@
             this.log('Game Key:', this.config.gameKey ? `${this.config.gameKey.substring(0, 8)}...` : 'NOT SET');
             this.log('Environment:', this.config.environment);
             
-            // Try multiple initialization patterns from Unity SDK with different auth methods
+            /* @tweakable Unity-style initialization sequence based on C# analysis */
             const initMethods = [
+                () => this.initializeViaUnityManagerPattern(),
+                () => this.initializeViaUnityNativeWrapper(),
+                () => this.initializeViaUnityDownloader(),
+                () => this.initializeViaSenderPattern(),
                 () => this.initializeViaGameKeyAuth(),
                 () => this.initializeViaSimpleAuth(),
-                () => this.initializeViaUnityPattern(),
                 () => this.initializeViaSessionInit(),
-                () => this.initializeViaInit(),
-                () => this.initializeViaStart(),
-                () => this.initializeViaBearerAuth(),
-                () => this.initializeViaQueryParams()
+                () => this.initializeViaDirectEndpoint()
             ];
 
             let lastError = null;
@@ -152,6 +152,121 @@
             }
             
             throw lastError || new Error('All initialization methods failed');
+        }
+
+        /* @tweakable Unity AdinmoManager initialization pattern based on C# analysis */
+        async initializeViaUnityManagerPattern() {
+            const payload = {
+                gameKey: this.config.gameKey,
+                platform: 'webgl',
+                unity_version: 'web-1.0',
+                sdk_version: this.config.version,
+                environment: this.config.environment,
+                session_id: this.sessionId,
+                device_info: this.deviceInfo,
+                app_version: '1.0.0',
+                timestamp: Date.now()
+            };
+
+            return await this.makeAPICall('/manager/initialize', {
+                method: 'POST',
+                headers: {
+                    'X-Unity-Game-Key': this.config.gameKey,
+                    'X-Platform': 'webgl',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
+        }
+
+        /* @tweakable Unity AdinmoNativeWrapper pattern based on C# analysis */
+        async initializeViaUnityNativeWrapper() {
+            const payload = {
+                key: this.config.gameKey,
+                platform: 'webgl',
+                version: this.config.version,
+                session: this.sessionId,
+                ua: navigator.userAgent,
+                screen_width: screen.width,
+                screen_height: screen.height,
+                device_info: JSON.stringify(this.deviceInfo)
+            };
+
+            return await this.makeAPICall('/native/init', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `GameKey ${this.config.gameKey}`,
+                    'X-Native-Platform': 'webgl',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
+        }
+
+        /* @tweakable Unity AdinmoDownloader pattern based on C# analysis */
+        async initializeViaUnityDownloader() {
+            const payload = {
+                gameKey: this.config.gameKey,
+                sessionId: this.sessionId,
+                platform: 'web',
+                userAgent: navigator.userAgent,
+                screenSize: {
+                    width: screen.width,
+                    height: screen.height
+                },
+                environment: this.config.environment
+            };
+
+            return await this.makeAPICall('/downloader/init', {
+                method: 'POST',
+                headers: {
+                    'Game-Key': this.config.gameKey,
+                    'X-Session-ID': this.sessionId,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
+        }
+
+        /* @tweakable Unity AdinmoSender pattern based on C# analysis */
+        async initializeViaSenderPattern() {
+            const payload = {
+                game_key: this.config.gameKey,
+                session_id: this.sessionId,
+                platform: 'webgl',
+                sdk_version: this.config.version,
+                unity_version: 'web',
+                device_data: this.deviceInfo
+            };
+
+            return await this.makeAPICall('/sender/start', {
+                method: 'POST',
+                headers: {
+                    'X-API-Key': this.config.gameKey,
+                    'X-Unity-Session': this.sessionId,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
+        }
+
+        /* @tweakable Direct endpoint without prefixes based on Unity patterns */
+        async initializeViaDirectEndpoint() {
+            const payload = {
+                gameKey: this.config.gameKey,
+                sessionId: this.sessionId,
+                platform: 'web',
+                version: this.config.version
+            };
+
+            return await this.makeAPICall('/init', {
+                method: 'POST',
+                headers: {
+                    'Authorization': this.config.gameKey,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
         }
 
         /* @tweakable Unity-style auth pattern */
@@ -299,7 +414,7 @@
         }
 
         /**
-         * IAP Integration Methods - Based on Unity AdInMoIapProxy
+         * IAP Integration Methods - Based on Unity AdInmoIapProxy
          */
         
         /**
@@ -739,7 +854,7 @@
          */
         async makeAPICallToURL(url, options = {}) {
             // Unity-style headers based on C# implementation
-            /* @tweakable default API headers based on Unity SDK patterns */
+            /* @tweakable default API headers based on Unity C# SDK patterns */
             const defaultHeaders = {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
@@ -747,22 +862,25 @@
                 'X-SDK-Platform': 'web',
                 'X-SDK-Version': this.config.version,
                 'X-Client-Platform': 'javascript',
-                'X-Unity-Version': 'web-1.0', // Mimic Unity SDK
+                'X-Unity-Version': 'web-1.0', // Mimic Unity SDK for backend compatibility
                 'X-Request-ID': this.generateRequestId(),
-                'X-Session-ID': this.sessionId || 'none'
+                'X-Session-ID': this.sessionId || 'none',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
             };
 
-            // Try different authorization approaches
+            // Enhanced authentication headers based on Unity patterns
             if (this.config.gameKey) {
-                // Try multiple auth header formats based on Unity patterns
-                /* @tweakable authentication header variations */
-                defaultHeaders['Authorization'] = `GameKey ${this.config.gameKey}`;
+                /* @tweakable authentication header variations based on Unity C# patterns */
+                defaultHeaders['Authorization'] = this.config.gameKey;
                 defaultHeaders['X-Game-Key'] = this.config.gameKey;
                 defaultHeaders['X-API-Key'] = this.config.gameKey;
                 defaultHeaders['Game-Key'] = this.config.gameKey;
                 defaultHeaders['X-Auth-Token'] = this.config.gameKey;
                 defaultHeaders['API-Key'] = this.config.gameKey;
                 defaultHeaders['Token'] = this.config.gameKey;
+                defaultHeaders['X-Unity-Game-Key'] = this.config.gameKey;
+                defaultHeaders['Unity-Game-Key'] = this.config.gameKey;
             }
 
             // Add session header if available
@@ -770,10 +888,11 @@
                 defaultHeaders['X-Session-ID'] = this.sessionId;
                 defaultHeaders['Session-ID'] = this.sessionId;
                 defaultHeaders['X-Session'] = this.sessionId;
+                defaultHeaders['X-Unity-Session'] = this.sessionId;
             }
 
             /* @tweakable request timeout in milliseconds */
-            const requestTimeout = 15000;
+            const requestTimeout = 20000;
 
             const requestOptions = {
                 mode: 'cors',
@@ -857,23 +976,25 @@
                     this.log('');
                     this.log('🛠️ POSSIBLE SOLUTIONS:');
                     this.log('1. ✅ CORS Issue: Your domain may not be whitelisted with AdInMo');
-                    this.log('2. ✅ Network: Check your internet connection');
+                    this.log('2. ✅ API Endpoint: The AdInMo API may use different endpoints than expected');
                     this.log('3. ✅ Game Key: Verify your Game Key is valid and active');
-                    this.log('4. ✅ API URL: AdInMo API endpoints may have changed');
+                    this.log('4. ✅ Network: Check your internet connection');
                     this.log('5. ✅ Firewall: Corporate/school firewalls may block the request');
-                    this.log('6. ✅ DNS: Try different DNS servers (8.8.8.8, 1.1.1.1)');
+                    this.log('6. ✅ Browser: Try a different browser or incognito mode');
                     this.log('7. ✅ Testing: Use "mock" mode to test without API calls');
-                    this.log('8. ✅ Browser: Try a different browser or incognito mode');
+                    this.log('8. ✅ Contact AdInMo support with this error log');
                     this.log('');
-                    this.log('📞 For support, contact AdInMo with this error log');
+                    this.log('📞 Support: https://www.adinmo.com/contact');
+                    this.log('🌐 Browser info:', navigator.userAgent);
+                    this.log('📡 Online status:', navigator.onLine ? 'Connected' : 'Offline');
                     this.log('===============================================');
                     
-                    // Test basic connectivity with different domains
+                    /* @tweakable network connectivity testing for debugging */
                     try {
                         await fetch('https://httpbin.org/get', { mode: 'cors', signal: AbortSignal.timeout(5000) });
                         this.log('✅ Basic CORS connectivity works (httpbin test passed)');
                         
-                        // Test AdInMo domain connectivity
+                        // Test AdInMo domain connectivity with no-cors
                         try {
                             await fetch('https://api.adinmo.com', { mode: 'no-cors', signal: AbortSignal.timeout(5000) });
                             this.log('✅ AdInMo domain is reachable (no-cors test)');
@@ -910,16 +1031,16 @@
             const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
             
             // Based on Unity SDK analysis, try different API patterns
-            /* @tweakable API endpoint patterns based on Unity SDK analysis */
+            /* @tweakable API endpoint patterns based on Unity C# SDK analysis */
             const possiblePaths = [
-                `${baseUrl}/v2/${cleanEndpoint}`,           // Try v2 API first
-                `${baseUrl}/v1/${cleanEndpoint}`,           // Most likely based on Unity patterns
+                `${baseUrl}/${cleanEndpoint}`,              // Direct endpoint (most likely for real API)
+                `${baseUrl}/api/${cleanEndpoint}`,          // API prefix
+                `${baseUrl}/v1/${cleanEndpoint}`,           // Version 1 API
                 `${baseUrl}/unity/${cleanEndpoint}`,        // Unity-specific path
                 `${baseUrl}/sdk/${cleanEndpoint}`,          // SDK specific path
                 `${baseUrl}/game/${cleanEndpoint}`,         // Game-specific
+                `${baseUrl}/v2/${cleanEndpoint}`,           // Version 2 API
                 `${baseUrl}/api/v1/${cleanEndpoint}`,       // Alternative structure
-                `${baseUrl}/api/${cleanEndpoint}`,          // API prefix
-                `${baseUrl}/${cleanEndpoint}`,              // Direct endpoint
                 `${baseUrl}/adinmo/${cleanEndpoint}`,       // Namespaced
                 `${baseUrl}/mobile/${cleanEndpoint}`,       // Mobile API path
                 `${baseUrl}/web/${cleanEndpoint}`,          // Web-specific path
