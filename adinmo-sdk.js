@@ -128,29 +128,171 @@
             this.log('Game Key:', this.config.gameKey ? `${this.config.gameKey.substring(0, 8)}...` : 'NOT SET');
             this.log('Environment:', this.config.environment);
             
-            /* @tweakable Reduced Unity-style initialization sequence to prevent hanging */
+            // Try multiple base URLs in case of DNS issues
+            const baseUrlFallbacks = this.getBaseUrlFallbacks();
+            let lastError = null;
+            
+            for (const baseUrl of baseUrlFallbacks) {
+                this.log(`🌐 Trying base URL: ${baseUrl}`);
+                const originalBaseUrl = this.config.baseUrl;
+                this.config.baseUrl = baseUrl;
+                
+                try {
+                    const result = await this.tryInitializationMethods();
+                    this.log('✅ Successfully initialized with base URL:', baseUrl);
+                    return result;
+                } catch (error) {
+                    this.log(`❌ Failed with base URL ${baseUrl}:`, error.message);
+                    lastError = error;
+                    
+                    // If this is a DNS error, continue to next URL immediately
+                    if (this.isDNSError(error)) {
+                        this.log('🔄 DNS error detected, trying next base URL...');
+                        continue;
+                    }
+                    
+                    // For other errors, restore original URL and continue
+                    this.config.baseUrl = originalBaseUrl;
+                    continue;
+                }
+            }
+            
+            // All base URLs failed
+            this.config.baseUrl = baseUrlFallbacks[0]; // Reset to first attempt
+            throw this.enhanceErrorWithDNSGuidance(lastError || new Error('All initialization methods failed'));
+        }
+
+        /**
+         * Get fallback base URLs to try if primary fails
+         */
+        getBaseUrlFallbacks() {
+            const primary = this.config.baseUrl === 'production' ? 'https://api.adinmo.com' : this.config.baseUrl;
+            
+            // Build comprehensive fallback list
+            const fallbacks = [primary];
+            
+            // Add alternative AdInMo domains/subdomains
+            const alternatives = [
+                'https://api-prod.adinmo.com',
+                'https://prod-api.adinmo.com',
+                'https://api.adinmo.io',
+                'https://sdk.adinmo.com',
+                'https://services.adinmo.com',
+                'https://gateway.adinmo.com',
+                'https://api-us.adinmo.com',
+                'https://api-eu.adinmo.com',
+                'https://api-global.adinmo.com',
+                'https://backend.adinmo.com',
+                'https://endpoint.adinmo.com'
+            ];
+            
+            // Only add alternatives if we're trying production
+            if (primary.includes('api.adinmo.com')) {
+                fallbacks.push(...alternatives);
+            }
+            
+            // Add staging fallback if not already staging
+            if (!primary.includes('staging')) {
+                fallbacks.push('https://staging-api.adinmo.com');
+            }
+            
+            return [...new Set(fallbacks)]; // Remove duplicates
+        }
+
+        /**
+         * Try various initialization methods with current base URL
+         */
+        async tryInitializationMethods() {
             const initMethods = [
                 () => this.initializeViaSessionInit(),
                 () => this.initializeViaGameKeyAuth(),
-                () => this.initializeViaDirectEndpoint()
+                () => this.initializeViaDirectEndpoint(),
+                () => this.initializeViaUnityManagerPattern(),
+                () => this.initializeViaUnityNativeWrapper()
             ];
 
             let lastError = null;
             
             for (const method of initMethods) {
                 try {
-                    this.log(`Attempting initialization method: ${method.name}`);
+                    this.log(`🔄 Attempting: ${method.name}`);
                     const result = await method();
-                    this.log('Successfully initialized via backend');
+                    this.log(`✅ Success via: ${method.name}`);
                     return result;
                 } catch (error) {
-                    this.log(`${method.name} failed:`, error.message);
+                    this.log(`❌ ${method.name} failed:`, error.message);
                     lastError = error;
+                    
+                    // For DNS errors, don't try other methods with same domain
+                    if (this.isDNSError(error)) {
+                        throw error;
+                    }
+                    
                     continue;
                 }
             }
             
             throw lastError || new Error('All initialization methods failed');
+        }
+
+        /**
+         * Detect if error is DNS-related
+         */
+        isDNSError(error) {
+            const message = error.message.toLowerCase();
+            const dnsIndicators = [
+                'origin dns error',
+                'dns error',
+                'nxdomain',
+                'dns_probe_finished_nxdomain',
+                'name not resolved',
+                'hostname not found',
+                'server not found',
+                'connection refused',
+                'network error',
+                'cloudflare',
+                'error 1016',
+                'failed to fetch'
+            ];
+            
+            return dnsIndicators.some(indicator => message.includes(indicator));
+        }
+
+        /**
+         * Enhance error with DNS-specific guidance
+         */
+        enhanceErrorWithDNSGuidance(error) {
+            if (this.isDNSError(error)) {
+                const enhancedMessage = `
+DNS/Network Error: Unable to reach AdInMo API servers.
+
+Original error: ${error.message}
+
+🔧 IMMEDIATE SOLUTIONS:
+1. ✅ Try "mock" mode: Set Base URL to "mock (local)" for testing
+2. ✅ Check if api.adinmo.com is accessible: Open https://api.adinmo.com in your browser
+3. ✅ Verify your internet connection is working
+4. ✅ Try a different network (mobile hotspot, different WiFi)
+5. ✅ Check if you're behind a corporate firewall that blocks api.adinmo.com
+6. ✅ Wait a few minutes and try again (temporary DNS issues)
+
+🌐 NETWORK DIAGNOSTICS:
+- The AdInMo API domain (api.adinmo.com) appears to be unreachable
+- This could be a temporary DNS issue or network connectivity problem
+- Multiple fallback domains were also attempted
+
+💡 FOR DEVELOPERS:
+- Use mock mode for development and testing
+- Contact AdInMo support if the issue persists
+- Check AdInMo status page for known outages
+
+📞 SUPPORT: https://www.adinmo.com/contact
+`.trim();
+                
+                return new Error(enhancedMessage);
+            }
+            
+            return error;
         }
 
         /* @tweakable Unity AdinmoManager initialization pattern based on C# analysis */
@@ -885,7 +1027,7 @@
             }
 
             /* @tweakable reduced request timeout to prevent hanging */
-            const requestTimeout = 6000;
+            const requestTimeout = 8000; // Increased slightly for DNS resolution
 
             const requestOptions = {
                 mode: 'cors',
@@ -899,19 +1041,17 @@
 
             try {
                 this.log(`🌐 Making API call: ${requestOptions.method || 'GET'} ${url}`);
-                this.log('📤 Request headers:', JSON.stringify(requestOptions.headers, null, 2));
-                if (requestOptions.body) {
-                    this.log('📦 Request body:', requestOptions.body);
+                if (this.config.debugMode) {
+                    this.log('📤 Request headers:', JSON.stringify(requestOptions.headers, null, 2));
+                    if (requestOptions.body) {
+                        this.log('📦 Request body:', requestOptions.body);
+                    }
                 }
 
-                // Add timeout to prevent hanging
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), requestTimeout);
+                const maxRetries = 2; // Reduced for faster fallback to other domains
+                const baseDelay = 500;
+                let lastErr = null;
                 
-                requestOptions.signal = controller.signal;
-
-                const maxRetries = 3, baseDelay = 400;
-                let lastErr;
                 for (let attempt = 0; attempt <= maxRetries; attempt++) {
                     try {
                         const controller = new AbortController();
@@ -919,23 +1059,48 @@
                         const resp = await fetch(url, { ...requestOptions, signal: controller.signal });
                         clearTimeout(timeoutId);
                         var response = resp; // keep name for existing code below
-                        lastErr = null; break;
+                        lastErr = null; 
+                        break;
                     } catch (e) {
                         lastErr = e;
-                        const transient = e.name === 'AbortError' || (e.name === 'TypeError' && /failed to fetch/i.test(e.message));
-                        if (transient && attempt < maxRetries) await new Promise(r => setTimeout(r, baseDelay * Math.pow(2, attempt)));
-                        else if (transient && this.config.corsProxy !== 'off' && !this._usingProxy) {
-                            this._usingProxy = true;
-                            this.log('↪️ Retrying via CORS proxy...');
-                            return await this.makeAPICallToURL(this.wrapWithProxy(url), options);
-                        } else { throw e; }
+                        const isDNSError = this.isDNSError(e);
+                        const isTimeoutError = e.name === 'AbortError';
+                        const isNetworkError = e.name === 'TypeError' && /failed to fetch/i.test(e.message);
+                        
+                        // For DNS errors, don't retry - fail fast to try next domain
+                        if (isDNSError && !isTimeoutError) {
+                            this.log(`🚫 DNS error detected, failing fast: ${e.message}`);
+                            throw e;
+                        }
+                        
+                        // For network errors, try CORS proxy only on last attempt
+                        if ((isTimeoutError || isNetworkError) && attempt === maxRetries) {
+                            if (this.config.corsProxy !== 'off' && !this._usingProxy) {
+                                this._usingProxy = true;
+                                this.log('↪️ Trying CORS proxy as last resort...');
+                                return await this.makeAPICallToURL(this.wrapWithProxy(url), options);
+                            }
+                        }
+                        
+                        // Retry with exponential backoff for transient errors
+                        if ((isTimeoutError || isNetworkError) && attempt < maxRetries) {
+                            const delay = baseDelay * Math.pow(2, attempt);
+                            this.log(`🔄 Retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries + 1})`);
+                            await new Promise(r => setTimeout(r, delay));
+                        } else if (attempt === maxRetries) {
+                            throw e;
+                        }
                     }
                 }
+                
                 if (lastErr) throw lastErr;
+
                 this.apiAttemptLog.push({ url, ok: response.ok, status: response.status, statusText: response.statusText });
                 
                 this.log(`📡 Response status: ${response.status} ${response.statusText}`);
-                this.log('📥 Response headers:', JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2));
+                if (this.config.debugMode) {
+                    this.log('📥 Response headers:', JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2));
+                }
                 
                 if (!response.ok) {
                     const errorText = await response.text().catch(() => 'Could not read error response body.');
@@ -954,6 +1119,9 @@
                         throw new Error(`Rate limit exceeded (429). Too many requests. Wait before retrying.`);
                     } else if (response.status >= 500) {
                         throw new Error(`Server error (${response.status}). AdInMo service may be temporarily unavailable: ${errorText}`);
+                    } else if (response.status === 530 || errorText.includes('Origin DNS error')) {
+                        // Cloudflare DNS error - treat as DNS issue
+                        throw new Error(`DNS error (${response.status}): AdInMo API domain is unreachable. ${errorText}`);
                     }
                     
                     throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
@@ -980,12 +1148,18 @@
                 this.apiAttemptLog.push({ url, ok: false, error: error.message || 'fetch_error' });
                 
                 this.log(`🚨 [NETWORK ERROR] API call failed for URL: ${url}`);
+                this.log(`🔍 Error details: ${error.name} - ${error.message}`);
+                
+                // Enhanced DNS error detection and messaging
+                if (this.isDNSError(error)) {
+                    this.log('🌐 DNS/Network issue detected. This domain may be unreachable.');
+                    throw new Error(`DNS/Network error for ${url}: ${error.message}`);
+                }
                 
                 if (error.name === 'TypeError' && error.message.toLowerCase().includes('failed to fetch')) {
                     this.log('=== COMPREHENSIVE NETWORK ERROR ANALYSIS ===');
                     this.log('🔍 URL attempted:', url);
                     this.log('🔍 Method:', requestOptions.method || 'GET');
-                    this.log('🔍 Headers sent:', JSON.stringify(requestOptions.headers, null, 2));
                     this.log('🔍 Game Key (partial):', this.config.gameKey ? `${this.config.gameKey.substring(0, 8)}...` : 'NOT SET');
                     this.log('🔍 Browser user agent:', navigator.userAgent);
                     this.log('🔍 Is online:', navigator.onLine);
@@ -993,17 +1167,13 @@
                     this.log('');
                     this.log('🛠️ POSSIBLE SOLUTIONS:');
                     this.log('1. ✅ CORS Issue: Your domain may not be whitelisted with AdInMo');
-                    this.log('2. ✅ API Endpoint: The AdInMo API may use different endpoints than expected');
+                    this.log('2. ✅ DNS Issue: The AdInMo API domain may be unreachable');
                     this.log('3. ✅ Game Key: Verify your Game Key is valid and active');
                     this.log('4. ✅ Network: Check your internet connection');
                     this.log('5. ✅ Firewall: Corporate/school firewalls may block the request');
                     this.log('6. ✅ Browser: Try a different browser or incognito mode');
                     this.log('7. ✅ Testing: Use "mock" mode to test without API calls');
                     this.log('8. ✅ Contact AdInMo support with this error log');
-                    this.log('');
-                    this.log('📞 Support: https://www.adinmo.com/contact');
-                    this.log('🌐 Browser info:', navigator.userAgent);
-                    this.log('📡 Online status:', navigator.onLine ? 'Connected' : 'Offline');
                     this.log('===============================================');
                 }
                 
