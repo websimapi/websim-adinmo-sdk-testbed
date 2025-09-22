@@ -1,6 +1,6 @@
 /* @tweakable default SDK config */
 const defaultConfig = {
-  gameKey: '', // put your real key or use input
+  gameKey: 'test-key-12345', // Using a dummy key for auto-init. Replace with your key via UI.
   environment: 'production',
   baseUrl: 'mock', // 'mock' or https://api.adinmo.com
   debugMode: false,
