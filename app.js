@@ -60,8 +60,11 @@ async function initSDK() {
     localStorage.setItem('adinmo-game-key', config.gameKey);
   }
   
-  // Validate game key for non-mock modes
+  // Validate game key for non-mock modes with better error message
   if (config.baseUrl !== 'mock' && !config.gameKey) {
+    logLine('ERROR: Game Key is required for production API.');
+    logLine('Get your Game Key from: https://www.adinmo.com/portal');
+    logLine('Or use "mock" mode for testing without a key.');
     throw new Error('Game Key is required for production API. Get one from https://www.adinmo.com/portal');
   }
   
@@ -74,7 +77,19 @@ async function initSDK() {
     detachMock = attachAdInMoMock(sdk, { latencyMs: mockLatencyMs });
   }
 
-  await sdk.initialize();
+  // Better initialization error handling
+  try {
+    await sdk.initialize();
+  } catch (error) {
+    logLine('Initialization failed with detailed error:');
+    logLine('Error message:', error.message);
+    logLine('Suggested fixes:');
+    logLine('1. Verify your Game Key is correct and active');
+    logLine('2. Check your internet connection');
+    logLine('3. Try using "mock" mode for testing');
+    logLine('4. Contact AdInMo support if issues persist');
+    throw error;
+  }
 
   // Create placements
   const container = $('#adContainer');
