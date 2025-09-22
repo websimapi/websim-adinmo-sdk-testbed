@@ -60,34 +60,52 @@ async function initSDK() {
     localStorage.setItem('adinmo-game-key', config.gameKey);
   }
   
-  // Validate game key for non-mock modes with better error message
+  // Enhanced validation for non-mock modes
   if (config.baseUrl !== 'mock' && !config.gameKey) {
-    logLine('ERROR: Game Key is required for production API.');
-    logLine('Get your Game Key from: https://www.adinmo.com/portal');
-    logLine('Or use "mock" mode for testing without a key.');
+    logLine('❌ ERROR: Game Key is required for production API.');
+    logLine('📝 Get your Game Key from: https://www.adinmo.com/portal');
+    logLine('🧪 Or use "mock" mode for testing without a key.');
+    logLine('💡 Set Base URL to "mock (local)" to test without API calls.');
     throw new Error('Game Key is required for production API. Get one from https://www.adinmo.com/portal');
   }
+  
+  // Better logging for initialization attempts
+  logLine('🚀 Starting SDK initialization...');
+  logLine('⚙️ Config:', {
+    gameKey: config.gameKey ? `${config.gameKey.substring(0, 8)}...` : 'NOT SET',
+    environment: config.environment,
+    baseUrl: config.baseUrl,
+    debugMode: config.debugMode
+  });
   
   sdk = new AdInMoSDK(config);
   bindSDKEvents(sdk);
 
   // Attach mock if requested
   if (sdk.config.baseUrl === 'mock') {
+    logLine('🧪 Using mock mode - no real API calls will be made');
     const { attachAdInMoMock } = await import('./mock-adapter.js');
     detachMock = attachAdInMoMock(sdk, { latencyMs: mockLatencyMs });
   }
 
-  // Better initialization error handling
+  // Enhanced initialization error handling with more context
   try {
     await sdk.initialize();
   } catch (error) {
-    logLine('Initialization failed with detailed error:');
-    logLine('Error message:', error.message);
-    logLine('Suggested fixes:');
-    logLine('1. Verify your Game Key is correct and active');
-    logLine('2. Check your internet connection');
-    logLine('3. Try using "mock" mode for testing');
-    logLine('4. Contact AdInMo support if issues persist');
+    logLine('💥 Initialization failed with detailed error:');
+    logLine('📋 Error message:', error.message);
+    logLine('');
+    logLine('🔧 Troubleshooting steps:');
+    logLine('1. ✅ Verify your Game Key is correct and active at https://www.adinmo.com/portal');
+    logLine('2. ✅ Check your internet connection and try again');
+    logLine('3. ✅ Try using "mock" mode for testing: set Base URL to "mock (local)"');
+    logLine('4. ✅ Check browser console for additional CORS or network errors');
+    logLine('5. ✅ Try a different browser or disable browser extensions');
+    logLine('6. ✅ If on corporate/school network, check firewall settings');
+    logLine('7. ✅ Contact AdInMo support with this error log if issues persist');
+    logLine('');
+    logLine('🌐 Browser info:', navigator.userAgent);
+    logLine('📡 Online status:', navigator.onLine ? 'Connected' : 'Offline');
     throw error;
   }
 

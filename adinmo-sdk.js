@@ -91,28 +91,95 @@
          * Initialize with backend - based on Unity native wrapper patterns
          */
         async initializeWithBackend() {
-            // Try multiple initialization patterns from Unity SDK
+            // Enhanced debugging for API communication
+            this.log('=== DETAILED API DEBUGGING ===');
+            this.log('Base URL:', this.config.baseUrl);
+            this.log('Game Key:', this.config.gameKey ? `${this.config.gameKey.substring(0, 8)}...` : 'NOT SET');
+            this.log('Environment:', this.config.environment);
+            
+            // Try multiple initialization patterns from Unity SDK with different auth methods
             const initMethods = [
+                () => this.initializeViaGameKeyAuth(),
                 () => this.initializeViaSessionInit(),
                 () => this.initializeViaInit(),
-                () => this.initializeViaStart()
+                () => this.initializeViaStart(),
+                () => this.initializeViaBearerAuth(),
+                () => this.initializeViaQueryParams()
             ];
 
             let lastError = null;
             
             for (const method of initMethods) {
                 try {
+                    this.log(`Attempting initialization method: ${method.name}`);
                     const result = await method();
                     this.log('Successfully initialized via backend');
                     return result;
                 } catch (error) {
-                    this.log(`Initialization method failed:`, error.message);
+                    this.log(`${method.name} failed:`, error.message);
                     lastError = error;
                     continue;
                 }
             }
             
             throw lastError || new Error('All initialization methods failed');
+        }
+
+        async initializeViaGameKeyAuth() {
+            const payload = {
+                gameKey: this.config.gameKey,
+                sessionId: this.sessionId,
+                platform: 'web',
+                sdkVersion: this.config.version,
+                environment: this.config.environment,
+                deviceInfo: this.deviceInfo,
+                timestamp: Date.now()
+            };
+
+            // Try with X-Game-Key header
+            return await this.makeAPICall('/session/init', {
+                method: 'POST',
+                headers: {
+                    'X-Game-Key': this.config.gameKey,
+                    'X-API-Key': this.config.gameKey
+                },
+                body: JSON.stringify(payload)
+            });
+        }
+
+        async initializeViaBearerAuth() {
+            const payload = {
+                gameKey: this.config.gameKey,
+                sessionId: this.sessionId,
+                platform: 'web',
+                sdkVersion: this.config.version,
+                environment: this.config.environment,
+                deviceInfo: this.deviceInfo,
+                timestamp: Date.now()
+            };
+
+            // Try with Bearer token
+            return await this.makeAPICall('/init', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.config.gameKey}`
+                },
+                body: JSON.stringify(payload)
+            });
+        }
+
+        async initializeViaQueryParams() {
+            // Try with query parameters instead of headers
+            const params = new URLSearchParams({
+                gameKey: this.config.gameKey,
+                sessionId: this.sessionId,
+                platform: 'web',
+                environment: this.config.environment
+            });
+
+            return await this.makeAPICall(`/initialize?${params.toString()}`, {
+                method: 'POST'
+            });
         }
 
         async initializeViaSessionInit() {
@@ -356,8 +423,37 @@
                 return await this.originalMakeAPICall(endpoint, options);
             }
             
-            const url = this.buildAPIUrl(endpoint);
+            // Try each API path variation
+            const variations = this.apiPathVariations || [this.buildAPIUrl(endpoint)];
+            let lastError = null;
             
+            for (let i = 0; i < variations.length; i++) {
+                const url = variations[i];
+                
+                try {
+                    const result = await this.makeAPICallToURL(url, options);
+                    this.log(`✓ Success with API path variation ${i + 1}: ${url}`);
+                    return result;
+                } catch (error) {
+                    this.log(`✗ Failed API path variation ${i + 1}: ${url} - ${error.message}`);
+                    lastError = error;
+                    
+                    // Don't try other paths for auth errors
+                    if (error.message.includes('401') || error.message.includes('403')) {
+                        break;
+                    }
+                    
+                    continue;
+                }
+            }
+            
+            throw lastError;
+        }
+
+        /**
+         * Make API call to specific URL with enhanced debugging
+         */
+        async makeAPICallToURL(url, options = {}) {
             // Unity-style headers based on C# implementation
             const defaultHeaders = {
                 'Content-Type': 'application/json',
@@ -365,12 +461,23 @@
                 'User-Agent': `AdInMo-JS-SDK/${this.config.version}`,
                 'X-SDK-Platform': 'web',
                 'X-SDK-Version': this.config.version,
-                'Authorization': `GameKey ${this.config.gameKey}`, // Unity style auth
+                'X-Client-Platform': 'javascript',
+                'X-Unity-Version': 'web-1.0', // Mimic Unity SDK
             };
+
+            // Try different authorization approaches
+            if (this.config.gameKey) {
+                // Try multiple auth header formats
+                defaultHeaders['Authorization'] = `GameKey ${this.config.gameKey}`;
+                defaultHeaders['X-Game-Key'] = this.config.gameKey;
+                defaultHeaders['X-API-Key'] = this.config.gameKey;
+                defaultHeaders['Game-Key'] = this.config.gameKey;
+            }
 
             // Add session header if available
             if (this.sessionId) {
                 defaultHeaders['X-Session-ID'] = this.sessionId;
+                defaultHeaders['Session-ID'] = this.sessionId;
             }
 
             const requestOptions = {
@@ -384,32 +491,41 @@
             };
 
             try {
-                this.log(`Making API call: ${requestOptions.method || 'GET'} ${url}`);
-                this.log('Request headers:', requestOptions.headers);
+                this.log(`🌐 Making API call: ${requestOptions.method || 'GET'} ${url}`);
+                this.log('📤 Request headers:', JSON.stringify(requestOptions.headers, null, 2));
                 if (requestOptions.body) {
-                    this.log('Request body:', requestOptions.body);
+                    this.log('📦 Request body:', requestOptions.body);
                 }
 
-                const response = await fetch(url, requestOptions);
+                // Add timeout to prevent hanging
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
                 
-                this.log(`Response status: ${response.status} ${response.statusText}`);
-                this.log('Response headers:', Object.fromEntries(response.headers.entries()));
+                requestOptions.signal = controller.signal;
+
+                const response = await fetch(url, requestOptions);
+                clearTimeout(timeoutId);
+                
+                this.log(`📡 Response status: ${response.status} ${response.statusText}`);
+                this.log('📥 Response headers:', JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2));
                 
                 if (!response.ok) {
                     const errorText = await response.text().catch(() => 'Could not read error response body.');
-                    this.log(`API error response:`, errorText);
+                    this.log(`❌ API error response:`, errorText);
                     
-                    // Handle specific HTTP errors with Unity-style error handling
+                    // Enhanced error handling with more specific messages
                     if (response.status === 404) {
-                        throw new Error(`API endpoint not found: ${endpoint}. Check if this endpoint exists in the AdInMo API.`);
-                    } else if (response.status === 401 || response.status === 403) {
-                        throw new Error(`Authentication failed. Invalid Game Key: ${this.config.gameKey}. Get a valid key from https://www.adinmo.com/portal`);
+                        throw new Error(`API endpoint not found: ${url}. This endpoint may not exist in the AdInMo API.`);
+                    } else if (response.status === 401) {
+                        throw new Error(`Authentication failed (401). Game Key "${this.config.gameKey}" is invalid or expired. Get a valid key from https://www.adinmo.com/portal`);
+                    } else if (response.status === 403) {
+                        throw new Error(`Access forbidden (403). Game Key may not have permission for this operation or domain not whitelisted.`);
                     } else if (response.status === 400) {
-                        throw new Error(`Bad request. Invalid request format or parameters: ${errorText}`);
+                        throw new Error(`Bad request (400). Invalid request format: ${errorText}`);
                     } else if (response.status === 429) {
-                        throw new Error(`Rate limit exceeded. Too many requests.`);
+                        throw new Error(`Rate limit exceeded (429). Too many requests. Wait before retrying.`);
                     } else if (response.status >= 500) {
-                        throw new Error(`Server error (${response.status}). AdInMo service may be temporarily unavailable.`);
+                        throw new Error(`Server error (${response.status}). AdInMo service may be temporarily unavailable: ${errorText}`);
                     }
                     
                     throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
@@ -424,25 +540,46 @@
                     responseData = await response.text();
                 }
                 
-                this.log('Response data:', responseData);
+                this.log('✅ Response data:', responseData);
                 return responseData;
                 
             } catch (error) {
-                this.log(`[NETWORK ERROR] API call failed for endpoint: ${endpoint}`);
+                if (error.name === 'AbortError') {
+                    throw new Error('Request timeout. The API took too long to respond.');
+                }
+                
+                this.log(`🚨 [NETWORK ERROR] API call failed for URL: ${url}`);
                 
                 if (error.name === 'TypeError' && error.message.toLowerCase().includes('failed to fetch')) {
-                    this.log('---vvv--- NETWORK/CORS ERROR DETAILS ---vvv---');
-                    this.log('URL:', url);
-                    this.log('Method:', requestOptions.method || 'GET');
-                    this.log('Headers:', requestOptions.headers);
-                    this.log('This is likely a CORS or network connectivity issue.');
-                    this.log('Possible solutions:');
-                    this.log('1. Verify your Game Key is valid and active');
-                    this.log('2. Check if your domain is whitelisted for CORS with AdInMo');
-                    this.log('3. Ensure you have internet connectivity');
-                    this.log('4. Try using the mock adapter for testing: set baseUrl to "mock"');
-                    this.log('5. Contact AdInMo support if the issue persists');
-                    this.log('---^^^--- END ERROR DETAILS ---^^^---');
+                    this.log('=== COMPREHENSIVE NETWORK ERROR ANALYSIS ===');
+                    this.log('🔍 URL attempted:', url);
+                    this.log('🔍 Method:', requestOptions.method || 'GET');
+                    this.log('🔍 Headers sent:', JSON.stringify(requestOptions.headers, null, 2));
+                    this.log('🔍 Game Key (partial):', this.config.gameKey ? `${this.config.gameKey.substring(0, 8)}...` : 'NOT SET');
+                    this.log('🔍 Browser user agent:', navigator.userAgent);
+                    this.log('🔍 Is online:', navigator.onLine);
+                    
+                    this.log('');
+                    this.log('🛠️ POSSIBLE SOLUTIONS:');
+                    this.log('1. ✅ CORS Issue: Your domain may not be whitelisted with AdInMo');
+                    this.log('2. ✅ Network: Check your internet connection');
+                    this.log('3. ✅ Game Key: Verify your Game Key is valid and active');
+                    this.log('4. ✅ API URL: AdInMo API endpoints may have changed');
+                    this.log('5. ✅ Firewall: Corporate/school firewalls may block the request');
+                    this.log('6. ✅ DNS: Try different DNS servers (8.8.8.8, 1.1.1.1)');
+                    this.log('7. ✅ Testing: Use "mock" mode to test without API calls');
+                    this.log('8. ✅ Browser: Try a different browser or incognito mode');
+                    this.log('');
+                    this.log('📞 For support, contact AdInMo with this error log');
+                    this.log('===============================================');
+                    
+                    // Test basic connectivity
+                    try {
+                        await fetch('https://httpbin.org/get', { mode: 'cors' });
+                        this.log('✅ Basic CORS connectivity works (httpbin test passed)');
+                    } catch (testError) {
+                        this.log('❌ Basic CORS connectivity failed. This indicates a broader network or browser issue.');
+                    }
                 }
                 
                 throw error;
@@ -469,14 +606,20 @@
             const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
             
             // Based on Unity SDK analysis, try different API patterns
+            // Try more comprehensive endpoint variations
             const possiblePaths = [
-                `${baseUrl}/v1/${cleanEndpoint}`,      // Most likely based on Unity patterns
-                `${baseUrl}/api/v1/${cleanEndpoint}`,  // Alternative structure
-                `${baseUrl}/${cleanEndpoint}`,         // Direct endpoint
-                `${baseUrl}/api/${cleanEndpoint}`      // API prefix
+                `${baseUrl}/v1/${cleanEndpoint}`,           // Most likely based on Unity patterns
+                `${baseUrl}/api/v1/${cleanEndpoint}`,       // Alternative structure
+                `${baseUrl}/sdk/v1/${cleanEndpoint}`,       // SDK specific path
+                `${baseUrl}/${cleanEndpoint}`,              // Direct endpoint
+                `${baseUrl}/api/${cleanEndpoint}`,          // API prefix
+                `${baseUrl}/adinmo/v1/${cleanEndpoint}`,    // Namespaced
+                `${baseUrl}/game/${cleanEndpoint}`,         // Game-specific
+                `${baseUrl}/mobile/${cleanEndpoint}`        // Mobile API path
             ];
             
-            // For now, use the most likely pattern
+            // For now, use the most likely pattern but store others for fallback
+            this.apiPathVariations = possiblePaths;
             return possiblePaths[0];
         }
 
