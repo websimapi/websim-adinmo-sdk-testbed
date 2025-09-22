@@ -264,16 +264,33 @@
                 return await response.text();
                 
             } catch (error) {
-                this.log(`API call failed to endpoint: ${endpoint}`);
-                this.log('Request URL:', url);
+                this.log(`[NETWORK ERROR] API call failed for endpoint: ${endpoint}`);
                 
                 if (error.name === 'TypeError' && error.message.toLowerCase().includes('failed to fetch')) {
-                    this.log('This is a common network error. Here are the likely causes:');
-                    this.log('1. CORS Policy: The server at the API endpoint does not allow requests from this origin. This is the most common issue. The server needs to return an `Access-Control-Allow-Origin: *` header (or your specific domain) in response to a pre-flight OPTIONS request.');
-                    this.log('2. Network Connectivity: Check your internet connection, DNS settings, or any firewalls/proxies that might be blocking the request.');
-                    this.log('3. Invalid URL / Server Down: Ensure the Base URL is correct and the API server is online and accessible from your network.');
-                    this.log('4. Mixed Content: If this test page is served over HTTP, it cannot make requests to an HTTPS API. Ensure both are using HTTPS.');
-                    this.log('Check the browser\'s developer console (usually F12) in the "Console" and "Network" tabs for more specific error messages from the browser itself.');
+                    this.log('---vvv--- FAILED REQUEST DETAILS ---vvv---');
+                    this.log('URL:', url);
+                    this.log('Method:', requestOptions.method || 'GET');
+                    this.log('Headers:', requestOptions.headers);
+                    if (requestOptions.body) {
+                        try {
+                            this.log('Body:', JSON.parse(requestOptions.body));
+                        } catch {
+                            this.log('Body (raw):', requestOptions.body);
+                        }
+                    }
+                    this.log('---^^^--- END REQUEST DETAILS ---^^^---');
+                    
+                    this.log('TROUBLESHOOTING "Failed to fetch":');
+                    this.log('This is a common network error in web development, almost always caused by CORS policy.');
+                    this.log('1. WHAT IS CORS? The server at the API endpoint (baseUrl) is not configured to allow requests from the website where this script is running. This is a security feature built into all web browsers.');
+                    this.log('2. WHAT IS NEEDED TO FIX THIS? The server at `' + this.config.baseUrl + '` must be updated. For the `/session/init` endpoint (and others), it needs to respond with a header like `Access-Control-Allow-Origin: *` or `Access-Control-Allow-Origin: [your-website-domain]`. This tells the browser that your website is trusted to make requests.');
+                    this.log('3. WHAT TO DO NEXT: Provide the "FAILED REQUEST DETAILS" above to the person who manages the AdInMo API server. They will need to adjust the server configuration to add the necessary CORS headers.');
+                    this.log('4. OTHER POSSIBILITIES (less likely):');
+                    this.log('  - The API server is down or the `baseUrl` is incorrect.');
+                    this.log('  - A firewall, ad blocker, or network proxy is blocking the request.');
+                    this.log('  - The page is loaded via HTTP but the API is HTTPS (mixed content).');
+                    this.log('You can get more technical details by opening your browser\'s Developer Tools (F12) and checking the "Console" and "Network" tabs for the exact error message.');
+
                 } else {
                     this.log('An unexpected network error occurred:', error);
                 }
