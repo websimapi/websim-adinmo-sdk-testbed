@@ -1201,6 +1201,28 @@
         }
 
         /**
+         * WebGL detection for graphics capabilities
+         */
+        detectWebGL() {
+            try {
+                const canvas = document.createElement('canvas');
+                const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                if (gl && gl instanceof WebGLRenderingContext) {
+                    const info = {
+                        supported: true,
+                        version: gl.getParameter(gl.VERSION),
+                        vendor: gl.getParameter(gl.VENDOR),
+                        renderer: gl.getParameter(gl.RENDERER)
+                    };
+                    return info;
+                }
+            } catch (e) {
+                return { supported: false };
+            }
+            return { supported: false };
+        }
+
+        /**
          * Event system
          */
         on(event, callback) {
