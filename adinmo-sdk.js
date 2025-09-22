@@ -22,7 +22,8 @@
                 version: '1.0.0-js',
                 ...config
             };
-
+            this.config.baseUrl = this.normalizeBaseUrl(this.config.baseUrl);
+            
             // Core state - based on Unity implementation
             this.isInitialized = false;
             this.sessionId = null;
@@ -66,6 +67,8 @@
             
             // Unity-style initialization state
             this.initializationState = 'NotInitialized'; // NotInitialized, Initializing, Initialized, Failed
+            
+            this.apiAttemptLog = [];
             
             this.log('AdInMo SDK created', this.config);
         }
@@ -812,12 +815,7 @@
          * Make API call - based on Unity HTTP patterns
          */
         async makeAPICall(endpoint, options = {}) {
-            // Handle mock mode
-            if (this.config.baseUrl === 'mock') {
-                return await this.originalMakeAPICall(endpoint, options);
-            }
-            
-            // Try each API path variation
+            // Remove internal mock short-circuit; mock-adapter wraps this method externally
             const variations = this.apiPathVariations || [this.buildAPIUrl(endpoint)];
             let lastError = null;
             
@@ -887,7 +885,7 @@
             }
 
             /* @tweakable reduced request timeout to prevent hanging */
-            const requestTimeout = 8000;
+            const requestTimeout = 6000;
 
             const requestOptions = {
                 mode: 'cors',
@@ -914,6 +912,7 @@
 
                 const response = await fetch(url, requestOptions);
                 clearTimeout(timeoutId);
+                this.apiAttemptLog.push({ url, ok: response.ok, status: response.status, statusText: response.statusText });
                 
                 this.log(`📡 Response status: ${response.status} ${response.statusText}`);
                 this.log('📥 Response headers:', JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2));
@@ -954,8 +953,11 @@
                 
             } catch (error) {
                 if (error.name === 'AbortError') {
+                    this.apiAttemptLog.push({ url, ok: false, error: `timeout_${requestTimeout}ms` });
                     throw new Error(`Request timeout after ${requestTimeout}ms. The API took too long to respond.`);
                 }
+                
+                this.apiAttemptLog.push({ url, ok: false, error: error.message || 'fetch_error' });
                 
                 this.log(`🚨 [NETWORK ERROR] API call failed for URL: ${url}`);
                 
@@ -997,26 +999,17 @@
          */
         buildAPIUrl(endpoint) {
             let baseUrl = this.config.baseUrl;
-            
-            // Handle different base URL formats
-            if (baseUrl === 'production') {
-                baseUrl = 'https://api.adinmo.com';
-            } else if (baseUrl === 'staging') {
-                baseUrl = 'https://staging-api.adinmo.com';
-            }
-                
-            // Clean endpoint
-            const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
-            
-            // Based on Unity SDK analysis, try fewer API patterns to prevent hanging
-            /* @tweakable reduced API endpoint patterns to prevent hanging */
+            if (baseUrl === 'production') baseUrl = 'https://api.adinmo.com';
+            else if (baseUrl === 'staging') baseUrl = 'https://staging-api.adinmo.com';
+            const cleanBase = baseUrl.replace(/\/+$/,'');
+            const cleanEndpoint = (endpoint.startsWith('/') ? endpoint : `/${endpoint}`).replace(/\/{2,}/g,'/');
+            const e = cleanEndpoint.replace(/^\//,''); // for building variants
             const possiblePaths = [
-                `${baseUrl}/${cleanEndpoint}`,              // Direct endpoint (most likely for real API)
-                `${baseUrl}/api/${cleanEndpoint}`,          // API prefix
-                `${baseUrl}/v1/${cleanEndpoint}`            // Version 1 API
+                `${cleanBase}/${e}`,
+                `${cleanBase}/api/${e}`,
+                `${cleanBase}/v1/${e}`,
+                `${cleanBase}/sdk/${e}`
             ];
-            
-            // For now, use the most likely pattern but store others for fallback
             this.apiPathVariations = possiblePaths;
             return possiblePaths[0];
         }
@@ -1519,6 +1512,13 @@
             if (this.config.debugMode) {
                 console.log('[AdInMo SDK]', ...args);
             }
+        }
+
+        normalizeBaseUrl(base) {
+            if (!base) return 'https://api.adinmo.com';
+            if (base === 'mock' || base === 'production' || base === 'staging') return base;
+            if (!/^https?:\/\//i.test(base)) return `https://${base}`; 
+            return base.replace(/\/+$/,'');
         }
     }
 

@@ -106,6 +106,13 @@ async function initSDK() {
     logLine('');
     logLine('🌐 Browser info:', navigator.userAgent);
     logLine('📡 Online status:', navigator.onLine ? 'Connected' : 'Offline');
+    if (sdk && Array.isArray(sdk.apiAttemptLog) && sdk.apiAttemptLog.length) {
+      logLine('🔎 API attempt summary (most recent last):');
+      sdk.apiAttemptLog.forEach((a,i) => {
+        const status = a.ok ? `OK ${a.status}` : `FAIL ${a.error || a.statusText || a.status}`;
+        logLine(`  ${String(i+1).padStart(2,'0')}. ${status} -> ${a.url}`);
+      });
+    }
     throw error;
   }
 
