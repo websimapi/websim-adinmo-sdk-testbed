@@ -124,15 +124,10 @@
             this.log('Game Key:', this.config.gameKey ? `${this.config.gameKey.substring(0, 8)}...` : 'NOT SET');
             this.log('Environment:', this.config.environment);
             
-            /* @tweakable Unity-style initialization sequence based on C# analysis */
+            /* @tweakable Reduced Unity-style initialization sequence to prevent hanging */
             const initMethods = [
-                () => this.initializeViaUnityManagerPattern(),
-                () => this.initializeViaUnityNativeWrapper(),
-                () => this.initializeViaUnityDownloader(),
-                () => this.initializeViaSenderPattern(),
-                () => this.initializeViaGameKeyAuth(),
-                () => this.initializeViaSimpleAuth(),
                 () => this.initializeViaSessionInit(),
+                () => this.initializeViaGameKeyAuth(),
                 () => this.initializeViaDirectEndpoint()
             ];
 
@@ -891,8 +886,8 @@
                 defaultHeaders['X-Unity-Session'] = this.sessionId;
             }
 
-            /* @tweakable request timeout in milliseconds */
-            const requestTimeout = 20000;
+            /* @tweakable reduced request timeout to prevent hanging */
+            const requestTimeout = 8000;
 
             const requestOptions = {
                 mode: 'cors',
@@ -988,23 +983,6 @@
                     this.log('🌐 Browser info:', navigator.userAgent);
                     this.log('📡 Online status:', navigator.onLine ? 'Connected' : 'Offline');
                     this.log('===============================================');
-                    
-                    /* @tweakable network connectivity testing for debugging */
-                    try {
-                        await fetch('https://httpbin.org/get', { mode: 'cors', signal: AbortSignal.timeout(5000) });
-                        this.log('✅ Basic CORS connectivity works (httpbin test passed)');
-                        
-                        // Test AdInMo domain connectivity with no-cors
-                        try {
-                            await fetch('https://api.adinmo.com', { mode: 'no-cors', signal: AbortSignal.timeout(5000) });
-                            this.log('✅ AdInMo domain is reachable (no-cors test)');
-                        } catch (adinmoError) {
-                            this.log('❌ AdInMo domain connectivity issue:', adinmoError.message);
-                        }
-                        
-                    } catch (testError) {
-                        this.log('❌ Basic CORS connectivity failed. This indicates a broader network or browser issue.');
-                    }
                 }
                 
                 throw error;
@@ -1030,21 +1008,12 @@
             // Clean endpoint
             const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
             
-            // Based on Unity SDK analysis, try different API patterns
-            /* @tweakable API endpoint patterns based on Unity C# SDK analysis */
+            // Based on Unity SDK analysis, try fewer API patterns to prevent hanging
+            /* @tweakable reduced API endpoint patterns to prevent hanging */
             const possiblePaths = [
                 `${baseUrl}/${cleanEndpoint}`,              // Direct endpoint (most likely for real API)
                 `${baseUrl}/api/${cleanEndpoint}`,          // API prefix
-                `${baseUrl}/v1/${cleanEndpoint}`,           // Version 1 API
-                `${baseUrl}/unity/${cleanEndpoint}`,        // Unity-specific path
-                `${baseUrl}/sdk/${cleanEndpoint}`,          // SDK specific path
-                `${baseUrl}/game/${cleanEndpoint}`,         // Game-specific
-                `${baseUrl}/v2/${cleanEndpoint}`,           // Version 2 API
-                `${baseUrl}/api/v1/${cleanEndpoint}`,       // Alternative structure
-                `${baseUrl}/adinmo/${cleanEndpoint}`,       // Namespaced
-                `${baseUrl}/mobile/${cleanEndpoint}`,       // Mobile API path
-                `${baseUrl}/web/${cleanEndpoint}`,          // Web-specific path
-                `${baseUrl}/js/${cleanEndpoint}`            // JavaScript SDK path
+                `${baseUrl}/v1/${cleanEndpoint}`            // Version 1 API
             ];
             
             // For now, use the most likely pattern but store others for fallback
@@ -1168,7 +1137,69 @@
         }
 
         /**
-         * Pause SDK operations
+         * Unity-style global callback system - from Unity AdinmoManager
+         */
+        setOnReadyCallback(callback) {
+            this.onReadyCallback = callback;
+        }
+
+        /**
+         * Unity-style pause/resume callbacks - from Unity PauseHandler
+         */
+        setPauseGameCallback(callback) {
+            this.pauseGameCallback = callback;
+        }
+
+        setResumeGameCallback(callback) {
+            this.resumeGameCallback = callback;
+        }
+
+        /**
+         * Unity-style message from server - from Unity AdinmoTexture
+         */
+        getMessageFromServer() {
+            return this.serverMessage || '';
+        }
+
+        /**
+         * Unity-style ready check - from Unity AdinmoManager
+         */
+        static isReady() {
+            return this.isInitialized;
+        }
+
+        /**
+         * Unity-style on ready listener - from Unity ZBDController
+         */
+        addOnReadyListener(callback) {
+            this.on('sdkInitialized', callback);
+        }
+
+        /**
+         * Unity-style URL opening - from Unity AdinmoNativeWrapper
+         */
+        openURL(url) {
+            if (url) {
+                window.open(url, '_blank');
+            }
+        }
+
+        /**
+         * Unity-style rewarded URL tracker - from Unity ZBDController
+         */
+        getRewardedUrlTracker() {
+            return 'https://zebedee.io/download';
+        }
+
+        /**
+         * Unity-style log info - from Unity logging system
+         */
+        logInfo(message) {
+            this.log('INFO:', message);
+        }
+
+        /**
+         * Pause SDK operations - Unity style
          */
         pauseSDK() {
             this.isPolling = false;
@@ -1176,14 +1207,24 @@
                 clearTimeout(this.messagePoller);
                 this.messagePoller = null;
             }
+            
+            // Call game pause callback if set
+            if (this.pauseGameCallback) {
+                this.pauseGameCallback();
+            }
         }
 
         /**
-         * Resume SDK operations
+         * Resume SDK operations - Unity style
          */
         resumeSDK() {
             if (this.isInitialized && !this.isPolling) {
                 this.startMessagePolling();
+            }
+            
+            // Call game resume callback if set
+            if (this.resumeGameCallback) {
+                this.resumeGameCallback();
             }
         }
 
@@ -1833,12 +1874,39 @@
             this.currentAd = null;
             this.loadState = 'NotLoaded'; // NotLoaded, Loading, Loaded, Failed
             
+            // Unity-style callback system
+            this.onReadyCallback = null;
+            this.onFailCallback = null;
+            
+            // Unity-style sampling data
+            this.latestSample = { sample: 0 };
+            this.latestFailureReason = 'None';
+            this.sampleTexture = null;
+            
             // DOM elements
             this.element = null;
             this.adElement = null;
             
             this.createDOM();
             this.setupEvents();
+        }
+
+        /**
+         * Unity-style callback setters - from Unity AdinmoTexture
+         */
+        setOnReadyCallback(callback) {
+            this.onReadyCallback = callback;
+        }
+
+        setOnFailCallback(callback) {
+            this.onFailCallback = callback;
+        }
+
+        /**
+         * Unity-style image active check - from Unity AdinmoTexture
+         */
+        isImageActive() {
+            return this.element && this.element.style.display !== 'none';
         }
 
         /**
@@ -1861,9 +1929,18 @@
                 });
 
                 this.currentAd = adData;
+                this.sampleTexture = adData.imageUrl;
+                this.latestSample = { sample: Math.random() }; // Mock sampling data
+                this.latestFailureReason = 'None';
+                
                 await this.renderAd();
                 this.isLoaded = true;
                 this.loadState = 'Loaded';
+                
+                // Unity-style callbacks
+                if (this.onReadyCallback) {
+                    this.onReadyCallback(this);
+                }
                 
                 this.sdk.triggerEvent('adLoaded', { 
                     placementId: this.id, 
@@ -1874,7 +1951,14 @@
 
             } catch (error) {
                 this.loadState = 'Failed';
+                this.latestFailureReason = error.message;
                 this.sdk.log('Failed to load ad for placement:', this.id, error);
+                
+                // Unity-style callbacks
+                if (this.onFailCallback) {
+                    this.onFailCallback(this);
+                }
+                
                 this.sdk.triggerEvent('adLoadFailed', { 
                     placementId: this.id, 
                     error: error.message 
@@ -1932,27 +2016,11 @@
         }
 
         /**
-         * Update placement configuration
+         * Update placement configuration - Unity style
          */
         updateConfig(newConfig) {
             Object.assign(this, newConfig);
             this.updateDOMStyles();
-        }
-
-        /**
-         * Create DOM elements
-         */
-        createDOM() {
-            // Main container
-            this.element = document.createElement('div');
-            this.element.id = `adinmo-placement-${this.id}`;
-            this.element.className = `adinmo-placement adinmo-${this.placementType}`;
-            
-            this.updateDOMStyles();
-
-            // Add to specified container or body
-            const targetContainer = this.container || document.body;
-            targetContainer.appendChild(this.element);
         }
 
         /**
@@ -1961,18 +2029,28 @@
         updateDOMStyles() {
             if (!this.element) return;
             
-            this.element.style.cssText = `
-                position: absolute;
-                left: ${this.position.x}px;
-                top: ${this.position.y}px;
+            // Handle calc() values for position
+            let xPos = this.position.x;
+            let yPos = this.position.y;
+            
+            if (typeof xPos === 'string' && xPos.includes('calc')) {
+                // Keep as CSS calc
+                this.element.style.left = xPos;
+            } else {
+                this.element.style.left = `${xPos}px`;
+            }
+            
+            if (typeof yPos === 'string' && yPos.includes('calc')) {
+                // Keep as CSS calc
+                this.element.style.top = yPos;
+            } else {
+                this.element.style.top = `${yPos}px`;
+            }
+            
+            this.element.style.cssText += `
                 width: ${this.size.width}px;
                 height: ${this.size.height}px;
-                display: none;
                 z-index: ${this.zIndex};
-                cursor: pointer;
-                overflow: hidden;
-                border-radius: 4px;
-                box-sizing: border-box;
                 ${this.sdk.config.debugMode ? 'border: 2px solid #ff6b6b;' : ''}
             `;
         }
