@@ -331,6 +331,23 @@
         }
 
         /**
+         * Request an ad for a placement (converted from Unity flow)
+         */
+        async loadAdForPlacement(placementId, params = {}) {
+            const payload = {
+                placementId,
+                sessionId: this.sessionId,
+                size: params.size,
+                aspectRatio: params.aspectRatio,
+                placementType: params.placementType,
+                deviceInfo: this.deviceInfo,
+                timestamp: Date.now()
+            };
+            const res = await this.makeAPICall('/ads/request', { method: 'POST', body: JSON.stringify(payload) });
+            return (res && res.ad) ? res.ad : res;
+        }
+
+        /**
          * Make API call - based on Unity HTTP patterns
          */
         async makeAPICall(endpoint, options = {}) {
@@ -1029,14 +1046,15 @@
             fallback.style.cssText = `
                 width: 100%;
                 height: 100%;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
+                background: #f3f4f6;
+                color: #111;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                font-family: Arial, sans-serif;
+                font-family: inherit;
                 font-size: 14px;
                 text-align: center;
+                border: 1px dashed #ddd;
             `;
             fallback.textContent = 'AdInMo';
             this.element.appendChild(fallback);
