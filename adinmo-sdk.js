@@ -691,6 +691,9 @@
             return match ? match[1] : 'Unknown';
         }
 
+        getTimezone() { try{const tz=Intl.DateTimeFormat().resolvedOptions().timeZone; if(tz) return tz;}catch(e){} const off=-new Date().getTimezoneOffset(), s=off>=0?'+':'-', a=Math.abs(off), hh=String(Math.floor(a/60)).padStart(2,'0'), mm=String(a%60).padStart(2,'0'); return `UTC${s}${hh}:${mm}`; }
+        detectWebGL() { try{const c=document.createElement('canvas'); const gl=c.getContext('webgl')||c.getContext('experimental-webgl'); if(!gl) return {supported:false}; const ext=gl.getExtension('WEBGL_debug_renderer_info'); const vendor=ext?gl.getParameter(ext.UNMASKED_VENDOR_WEBGL):gl.getParameter(gl.VENDOR); const renderer=ext?gl.getParameter(ext.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER); return {supported:true,vendor,renderer}; }catch(e){ return {supported:false}; } }
+
         /**
          * Event system
          */
