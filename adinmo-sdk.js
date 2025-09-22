@@ -205,14 +205,36 @@
                 sessionId: this.sessionId,
                 platform: 'web',
                 sdkVersion: this.config.version,
+                environment: this.config.environment,
                 deviceInfo: this.deviceInfo,
                 timestamp: Date.now()
             };
 
-            return await this.makeAPICall('/session/init', {
-                method: 'POST',
-                body: JSON.stringify(payload)
-            });
+            try {
+                const response = await this.makeAPICall('/session/init', {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
+                
+                this.log('Session initialized:', response);
+                return response;
+                
+            } catch (error) {
+                this.log('Session initialization failed, trying alternative endpoint...');
+                
+                // Try alternative initialization approach
+                try {
+                    const altResponse = await this.makeAPICall('/initialize', {
+                        method: 'POST',
+                        body: JSON.stringify(payload)
+                    });
+                    this.log('Session initialized via alternative endpoint:', altResponse);
+                    return altResponse;
+                } catch (altError) {
+                    this.log('Alternative initialization also failed:', altError);
+                    throw error; // Throw original error
+                }
+            }
         }
 
         /**
@@ -229,17 +251,27 @@
          * Make API call to AdInMo backend
          */
         async makeAPICall(endpoint, options = {}) {
-            const url = `${this.config.baseUrl}${endpoint}`;
+            // Handle mock mode
+            if (this.config.baseUrl === 'mock') {
+                return await this.originalMakeAPICall(endpoint, options);
+            }
+            
+            // For real API calls, use a different approach based on Unity SDK patterns
+            const url = this.buildAPIUrl(endpoint);
             
             const defaultHeaders = {
                 'Content-Type': 'application/json',
-                'X-AdInMo-Game-Key': this.config.gameKey,
-                'X-AdInMo-Session-ID': this.sessionId || '',
-                'X-AdInMo-SDK-Version': this.config.version,
+                'Accept': 'application/json',
+                'X-Game-Key': this.config.gameKey,  // Unity SDK uses X-Game-Key
+                'X-Session-ID': this.sessionId || '',
+                'X-SDK-Version': this.config.version,
+                'X-Platform': 'web',
                 'User-Agent': navigator.userAgent
             };
 
             const requestOptions = {
+                mode: 'cors',
+                credentials: 'omit',
                 ...options,
                 headers: {
                     ...defaultHeaders,
@@ -248,55 +280,92 @@
             };
 
             try {
+                this.log(`Making API call: ${requestOptions.method || 'GET'} ${url}`);
+                this.log('Request headers:', requestOptions.headers);
+                if (requestOptions.body) {
+                    this.log('Request body:', requestOptions.body);
+                }
+
                 const response = await fetch(url, requestOptions);
+                
+                this.log(`Response status: ${response.status} ${response.statusText}`);
+                this.log('Response headers:', Object.fromEntries(response.headers.entries()));
                 
                 if (!response.ok) {
                     const errorText = await response.text().catch(() => 'Could not read error response body.');
-                    this.log(`API call HTTP error: ${response.status} ${response.statusText}`, errorText);
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    this.log(`API error response:`, errorText);
+                    
+                    // Handle specific HTTP errors
+                    if (response.status === 404) {
+                        throw new Error(`API endpoint not found: ${endpoint}. This endpoint may not be implemented yet.`);
+                    } else if (response.status === 401 || response.status === 403) {
+                        throw new Error(`Authentication failed. Check your Game Key: ${this.config.gameKey}`);
+                    } else if (response.status === 400) {
+                        throw new Error(`Bad request. Server rejected the request format: ${errorText}`);
+                    }
+                    
+                    throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
                 }
 
-                const contentType = response.headers.get('content-type');
-                if (contentType && contentType.includes('application/json')) {
-                    return await response.json();
+                const contentType = response.headers.get('content-type') || '';
+                let responseData;
+                
+                if (contentType.includes('application/json')) {
+                    responseData = await response.json();
+                } else {
+                    responseData = await response.text();
                 }
                 
-                return await response.text();
+                this.log('Response data:', responseData);
+                return responseData;
                 
             } catch (error) {
                 this.log(`[NETWORK ERROR] API call failed for endpoint: ${endpoint}`);
                 
                 if (error.name === 'TypeError' && error.message.toLowerCase().includes('failed to fetch')) {
-                    this.log('---vvv--- FAILED REQUEST DETAILS ---vvv---');
+                    this.log('---vvv--- CORS/NETWORK ERROR DETAILS ---vvv---');
                     this.log('URL:', url);
                     this.log('Method:', requestOptions.method || 'GET');
                     this.log('Headers:', requestOptions.headers);
-                    if (requestOptions.body) {
-                        try {
-                            this.log('Body:', JSON.parse(requestOptions.body));
-                        } catch {
-                            this.log('Body (raw):', requestOptions.body);
-                        }
-                    }
-                    this.log('---^^^--- END REQUEST DETAILS ---^^^---');
-                    
-                    this.log('TROUBLESHOOTING "Failed to fetch":');
-                    this.log('This is a common network error in web development, almost always caused by CORS policy.');
-                    this.log('1. WHAT IS CORS? The server at the API endpoint (baseUrl) is not configured to allow requests from the website where this script is running. This is a security feature built into all web browsers.');
-                    this.log('2. WHAT IS NEEDED TO FIX THIS? The server at `' + this.config.baseUrl + '` must be updated. For the `/session/init` endpoint (and others), it needs to respond with a header like `Access-Control-Allow-Origin: *` or `Access-Control-Allow-Origin: [your-website-domain]`. This tells the browser that your website is trusted to make requests.');
-                    this.log('3. WHAT TO DO NEXT: Provide the "FAILED REQUEST DETAILS" above to the person who manages the AdInMo API server. They will need to adjust the server configuration to add the necessary CORS headers.');
-                    this.log('4. OTHER POSSIBILITIES (less likely):');
-                    this.log('  - The API server is down or the `baseUrl` is incorrect.');
-                    this.log('  - A firewall, ad blocker, or network proxy is blocking the request.');
-                    this.log('  - The page is loaded via HTTP but the API is HTTPS (mixed content).');
-                    this.log('You can get more technical details by opening your browser\'s Developer Tools (F12) and checking the "Console" and "Network" tabs for the exact error message.');
-
-                } else {
-                    this.log('An unexpected network error occurred:', error);
+                    this.log('CORS Error - This means the AdInMo API server is not configured to accept requests from your domain.');
+                    this.log('Solutions:');
+                    this.log('1. Contact AdInMo support to whitelist your domain for CORS');
+                    this.log('2. Use the mock adapter for testing: set baseUrl to "mock"');
+                    this.log('3. Run your code from the same domain as the API');
+                    this.log('4. Use a proxy server to bypass CORS restrictions');
+                    this.log('---^^^--- END ERROR DETAILS ---^^^---');
                 }
                 
                 throw error;
             }
+        }
+
+        // Store original method for mock mode
+        originalMakeAPICall = this.makeAPICall;
+
+        /**
+         * Build API URL based on Unity SDK patterns
+         */
+        buildAPIUrl(endpoint) {
+            const baseUrl = this.config.baseUrl === 'production' 
+                ? 'https://api.adinmo.com' 
+                : this.config.baseUrl;
+                
+            // Unity SDK appears to use different API structure
+            const apiVersion = 'v1';
+            const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
+            
+            // Map our endpoints to likely real endpoints
+            const endpointMap = {
+                'session/init': 'session/initialize',
+                'ads/request': 'ads/get',
+                'track/impression': 'analytics/impression',
+                'track/click': 'analytics/click',
+                'messages/poll': 'messages/get'
+            };
+            
+            const mappedEndpoint = endpointMap[cleanEndpoint] || cleanEndpoint;
+            return `${baseUrl}/${apiVersion}/${mappedEndpoint}`;
         }
 
         /**

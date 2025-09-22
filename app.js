@@ -2,8 +2,8 @@
 const defaultConfig = {
   gameKey: '', // Using a dummy key for auto-init. Replace with your key via UI.
   environment: 'production',
-  baseUrl: 'mock', // 'mock' or https://api.adinmo.com
-  debugMode: false,
+  baseUrl: 'mock', // 'mock' or 'production' or https://api.adinmo.com
+  debugMode: true, // Enable debug mode by default for troubleshooting
   /* @tweakable server polling interval (ms) */
   pollingInterval: 30000
 };
@@ -28,7 +28,8 @@ function logLine(msg, data) {
 function applyInputsToConfig(cfg) {
   cfg.gameKey = $('#gameKey').value.trim() || cfg.gameKey;
   cfg.environment = $('#environment').value;
-  cfg.baseUrl = $('#baseUrl').value;
+  const baseUrlValue = $('#baseUrl').value;
+  cfg.baseUrl = baseUrlValue === 'https://api.adinmo.com' ? 'production' : baseUrlValue;
   cfg.debugMode = $('#debugMode').checked;
   const pi = parseInt($('#pollInterval').value, 10);
   if (!Number.isNaN(pi)) cfg.pollingInterval = pi;
@@ -51,7 +52,20 @@ async function initSDK() {
     if (detachMock) detachMock();
     detachMock = null;
   }
-  sdk = new AdInMoSDK(applyInputsToConfig({ ...defaultConfig }));
+  
+  const config = applyInputsToConfig({ ...defaultConfig });
+  
+  // Save game key for future use
+  if (config.gameKey) {
+    localStorage.setItem('adinmo-game-key', config.gameKey);
+  }
+  
+  // Validate game key for non-mock modes
+  if (config.baseUrl !== 'mock' && !config.gameKey) {
+    throw new Error('Game Key is required for production API. Get one from https://www.adinmo.com/portal');
+  }
+  
+  sdk = new AdInMoSDK(config);
   bindSDKEvents(sdk);
 
   // Attach mock if requested
@@ -188,9 +202,11 @@ window.addEventListener('DOMContentLoaded', () => {
   const savedGameKey = localStorage.getItem('adinmo-game-key');
   if (savedGameKey) {
     $('#gameKey').value = savedGameKey;
-    // Optional: auto init with mock for instant demo
-    initSDK().catch(e => logLine('auto init error', e.message));
+    logLine('Loaded saved Game Key. Click "Initialize SDK" to start.');
   } else {
     logLine('Enter your Game Key and click "Initialize SDK" to start.');
   }
+  
+  // Enable debug mode by default for troubleshooting
+  $('#debugMode').checked = true;
 });
