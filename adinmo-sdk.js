@@ -100,6 +100,8 @@
             // Try multiple initialization patterns from Unity SDK with different auth methods
             const initMethods = [
                 () => this.initializeViaGameKeyAuth(),
+                () => this.initializeViaSimpleAuth(),
+                () => this.initializeViaUnityPattern(),
                 () => this.initializeViaSessionInit(),
                 () => this.initializeViaInit(),
                 () => this.initializeViaStart(),
@@ -123,6 +125,44 @@
             }
             
             throw lastError || new Error('All initialization methods failed');
+        }
+
+        /* @tweakable Unity-style auth pattern */
+        async initializeViaSimpleAuth() {
+            const payload = {
+                gameKey: this.config.gameKey,
+                platform: 'web',
+                version: this.config.version
+            };
+
+            return await this.makeAPICall('/auth', {
+                method: 'POST',
+                headers: {
+                    'X-Game-Key': this.config.gameKey,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
+        }
+
+        /* @tweakable Unity manager initialization pattern */
+        async initializeViaUnityPattern() {
+            const payload = {
+                key: this.config.gameKey,
+                platform: 'webgl',
+                sdk_version: this.config.version,
+                device_info: this.deviceInfo
+            };
+
+            return await this.makeAPICall('/manager/init', {
+                method: 'POST',
+                headers: {
+                    'Authorization': this.config.gameKey,
+                    'Content-Type': 'application/json',
+                    'X-Platform': 'web'
+                },
+                body: JSON.stringify(payload)
+            });
         }
 
         async initializeViaGameKeyAuth() {
@@ -455,6 +495,7 @@
          */
         async makeAPICallToURL(url, options = {}) {
             // Unity-style headers based on C# implementation
+            /* @tweakable default API headers based on Unity SDK patterns */
             const defaultHeaders = {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
@@ -463,22 +504,32 @@
                 'X-SDK-Version': this.config.version,
                 'X-Client-Platform': 'javascript',
                 'X-Unity-Version': 'web-1.0', // Mimic Unity SDK
+                'X-Request-ID': this.generateRequestId(),
+                'X-Session-ID': this.sessionId || 'none'
             };
 
             // Try different authorization approaches
             if (this.config.gameKey) {
-                // Try multiple auth header formats
+                // Try multiple auth header formats based on Unity patterns
+                /* @tweakable authentication header variations */
                 defaultHeaders['Authorization'] = `GameKey ${this.config.gameKey}`;
                 defaultHeaders['X-Game-Key'] = this.config.gameKey;
                 defaultHeaders['X-API-Key'] = this.config.gameKey;
                 defaultHeaders['Game-Key'] = this.config.gameKey;
+                defaultHeaders['X-Auth-Token'] = this.config.gameKey;
+                defaultHeaders['API-Key'] = this.config.gameKey;
+                defaultHeaders['Token'] = this.config.gameKey;
             }
 
             // Add session header if available
             if (this.sessionId) {
                 defaultHeaders['X-Session-ID'] = this.sessionId;
                 defaultHeaders['Session-ID'] = this.sessionId;
+                defaultHeaders['X-Session'] = this.sessionId;
             }
+
+            /* @tweakable request timeout in milliseconds */
+            const requestTimeout = 15000;
 
             const requestOptions = {
                 mode: 'cors',
@@ -499,7 +550,7 @@
 
                 // Add timeout to prevent hanging
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+                const timeoutId = setTimeout(() => controller.abort(), requestTimeout);
                 
                 requestOptions.signal = controller.signal;
 
@@ -545,7 +596,7 @@
                 
             } catch (error) {
                 if (error.name === 'AbortError') {
-                    throw new Error('Request timeout. The API took too long to respond.');
+                    throw new Error(`Request timeout after ${requestTimeout}ms. The API took too long to respond.`);
                 }
                 
                 this.log(`🚨 [NETWORK ERROR] API call failed for URL: ${url}`);
@@ -573,10 +624,19 @@
                     this.log('📞 For support, contact AdInMo with this error log');
                     this.log('===============================================');
                     
-                    // Test basic connectivity
+                    // Test basic connectivity with different domains
                     try {
-                        await fetch('https://httpbin.org/get', { mode: 'cors' });
+                        await fetch('https://httpbin.org/get', { mode: 'cors', signal: AbortSignal.timeout(5000) });
                         this.log('✅ Basic CORS connectivity works (httpbin test passed)');
+                        
+                        // Test AdInMo domain connectivity
+                        try {
+                            await fetch('https://api.adinmo.com', { mode: 'no-cors', signal: AbortSignal.timeout(5000) });
+                            this.log('✅ AdInMo domain is reachable (no-cors test)');
+                        } catch (adinmoError) {
+                            this.log('❌ AdInMo domain connectivity issue:', adinmoError.message);
+                        }
+                        
                     } catch (testError) {
                         this.log('❌ Basic CORS connectivity failed. This indicates a broader network or browser issue.');
                     }
@@ -606,16 +666,20 @@
             const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
             
             // Based on Unity SDK analysis, try different API patterns
-            // Try more comprehensive endpoint variations
+            /* @tweakable API endpoint patterns based on Unity SDK analysis */
             const possiblePaths = [
+                `${baseUrl}/v2/${cleanEndpoint}`,           // Try v2 API first
                 `${baseUrl}/v1/${cleanEndpoint}`,           // Most likely based on Unity patterns
-                `${baseUrl}/api/v1/${cleanEndpoint}`,       // Alternative structure
-                `${baseUrl}/sdk/v1/${cleanEndpoint}`,       // SDK specific path
-                `${baseUrl}/${cleanEndpoint}`,              // Direct endpoint
-                `${baseUrl}/api/${cleanEndpoint}`,          // API prefix
-                `${baseUrl}/adinmo/v1/${cleanEndpoint}`,    // Namespaced
+                `${baseUrl}/unity/${cleanEndpoint}`,        // Unity-specific path
+                `${baseUrl}/sdk/${cleanEndpoint}`,          // SDK specific path
                 `${baseUrl}/game/${cleanEndpoint}`,         // Game-specific
-                `${baseUrl}/mobile/${cleanEndpoint}`        // Mobile API path
+                `${baseUrl}/api/v1/${cleanEndpoint}`,       // Alternative structure
+                `${baseUrl}/api/${cleanEndpoint}`,          // API prefix
+                `${baseUrl}/${cleanEndpoint}`,              // Direct endpoint
+                `${baseUrl}/adinmo/${cleanEndpoint}`,       // Namespaced
+                `${baseUrl}/mobile/${cleanEndpoint}`,       // Mobile API path
+                `${baseUrl}/web/${cleanEndpoint}`,          // Web-specific path
+                `${baseUrl}/js/${cleanEndpoint}`            // JavaScript SDK path
             ];
             
             // For now, use the most likely pattern but store others for fallback
@@ -895,6 +959,13 @@
             const timestamp = Date.now().toString(36);
             const random = Math.random().toString(36).substring(2, 15);
             return `web_${timestamp}_${random}`;
+        }
+
+        /**
+         * Generate unique request ID for tracking
+         */
+        generateRequestId() {
+            return `req_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
         }
 
         log(...args) {
