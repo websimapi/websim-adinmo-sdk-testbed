@@ -1223,6 +1223,87 @@
         }
 
         /**
+         * Get operating system information
+         */
+        getOperatingSystem() {
+            const userAgent = navigator.userAgent;
+            
+            if (userAgent.includes('Windows NT')) {
+                if (userAgent.includes('Windows NT 10.0')) return 'Windows 10';
+                if (userAgent.includes('Windows NT 6.3')) return 'Windows 8.1';
+                if (userAgent.includes('Windows NT 6.2')) return 'Windows 8';
+                if (userAgent.includes('Windows NT 6.1')) return 'Windows 7';
+                return 'Windows';
+            } else if (userAgent.includes('Mac OS X')) {
+                const match = userAgent.match(/Mac OS X (\d+[._]\d+[._]\d+)/);
+                return match ? `macOS ${match[1].replace(/_/g, '.')}` : 'macOS';
+            } else if (userAgent.includes('Linux')) {
+                if (userAgent.includes('Android')) {
+                    const match = userAgent.match(/Android (\d+\.?\d*\.?\d*)/);
+                    return match ? `Android ${match[1]}` : 'Android';
+                }
+                return 'Linux';
+            } else if (userAgent.includes('iPhone') || userAgent.includes('iPad')) {
+                const match = userAgent.match(/OS (\d+_\d+_?\d*)/);
+                return match ? `iOS ${match[1].replace(/_/g, '.')}` : 'iOS';
+            } else if (userAgent.includes('CrOS')) {
+                return 'Chrome OS';
+            }
+            
+            return 'Unknown';
+        }
+
+        /**
+         * Get browser name
+         */
+        getBrowserName() {
+            const userAgent = navigator.userAgent;
+            
+            if (userAgent.includes('Chrome') && !userAgent.includes('Chromium') && !userAgent.includes('Edg')) {
+                return 'Chrome';
+            } else if (userAgent.includes('Firefox')) {
+                return 'Firefox';
+            } else if (userAgent.includes('Safari') && !userAgent.includes('Chrome')) {
+                return 'Safari';
+            } else if (userAgent.includes('Edg')) {
+                return 'Edge';
+            } else if (userAgent.includes('Opera') || userAgent.includes('OPR')) {
+                return 'Opera';
+            } else if (userAgent.includes('Trident') || userAgent.includes('MSIE')) {
+                return 'Internet Explorer';
+            }
+            
+            return 'Unknown';
+        }
+
+        /**
+         * Get browser version
+         */
+        getBrowserVersion() {
+            const userAgent = navigator.userAgent;
+            let match;
+            
+            if (userAgent.includes('Chrome') && !userAgent.includes('Chromium') && !userAgent.includes('Edg')) {
+                match = userAgent.match(/Chrome\/(\d+\.\d+\.\d+\.\d+)/);
+                return match ? match[1] : 'Unknown';
+            } else if (userAgent.includes('Firefox')) {
+                match = userAgent.match(/Firefox\/(\d+\.\d+)/);
+                return match ? match[1] : 'Unknown';
+            } else if (userAgent.includes('Safari') && !userAgent.includes('Chrome')) {
+                match = userAgent.match(/Version\/(\d+\.\d+\.\d+)/);
+                return match ? match[1] : 'Unknown';
+            } else if (userAgent.includes('Edg')) {
+                match = userAgent.match(/Edg\/(\d+\.\d+\.\d+\.\d+)/);
+                return match ? match[1] : 'Unknown';
+            } else if (userAgent.includes('Opera') || userAgent.includes('OPR')) {
+                match = userAgent.match(/(?:Opera|OPR)\/(\d+\.\d+\.\d+\.\d+)/);
+                return match ? match[1] : 'Unknown';
+            }
+            
+            return 'Unknown';
+        }
+
+        /**
          * Event system
          */
         on(event, callback) {
