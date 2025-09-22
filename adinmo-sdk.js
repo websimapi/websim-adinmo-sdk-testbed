@@ -20,6 +20,7 @@
                 enableAudio: config.enableAudio || true,
                 pollingInterval: config.pollingInterval || 30000,
                 version: '1.0.0-js',
+                corsProxy: config.corsProxy ?? 'auto',
                 ...config
             };
             this.config.baseUrl = this.normalizeBaseUrl(this.config.baseUrl);
@@ -851,11 +852,10 @@
             const defaultHeaders = {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
-                'User-Agent': `AdInMo-JS-SDK/${this.config.version}`,
                 'X-SDK-Platform': 'web',
                 'X-SDK-Version': this.config.version,
                 'X-Client-Platform': 'javascript',
-                'X-Unity-Version': 'web-1.0', // Mimic Unity SDK for backend compatibility
+                'X-Unity-Version': 'web-1.0',
                 'X-Request-ID': this.generateRequestId(),
                 'X-Session-ID': this.sessionId || 'none',
                 'Cache-Control': 'no-cache',
@@ -910,8 +910,28 @@
                 
                 requestOptions.signal = controller.signal;
 
-                const response = await fetch(url, requestOptions);
-                clearTimeout(timeoutId);
+                const maxRetries = 3, baseDelay = 400;
+                let lastErr;
+                for (let attempt = 0; attempt <= maxRetries; attempt++) {
+                    try {
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), requestTimeout);
+                        const resp = await fetch(url, { ...requestOptions, signal: controller.signal });
+                        clearTimeout(timeoutId);
+                        var response = resp; // keep name for existing code below
+                        lastErr = null; break;
+                    } catch (e) {
+                        lastErr = e;
+                        const transient = e.name === 'AbortError' || (e.name === 'TypeError' && /failed to fetch/i.test(e.message));
+                        if (transient && attempt < maxRetries) await new Promise(r => setTimeout(r, baseDelay * Math.pow(2, attempt)));
+                        else if (transient && this.config.corsProxy !== 'off' && !this._usingProxy) {
+                            this._usingProxy = true;
+                            this.log('↪️ Retrying via CORS proxy...');
+                            return await this.makeAPICallToURL(this.wrapWithProxy(url), options);
+                        } else { throw e; }
+                    }
+                }
+                if (lastErr) throw lastErr;
                 this.apiAttemptLog.push({ url, ok: response.ok, status: response.status, statusText: response.statusText });
                 
                 this.log(`📡 Response status: ${response.status} ${response.statusText}`);
@@ -1519,6 +1539,15 @@
             if (base === 'mock' || base === 'production' || base === 'staging') return base;
             if (!/^https?:\/\//i.test(base)) return `https://${base}`; 
             return base.replace(/\/+$/,'');
+        }
+
+        wrapWithProxy(url) {
+            const proxies = [
+                `https://corsproxy.io/?${encodeURIComponent(url)}`,
+                `https://cors.isomorphic-git.org/${url}`
+            ];
+            this._proxyTry = (this._proxyTry || 0) + 1;
+            return proxies[(this._proxyTry - 1) % proxies.length];
         }
     }
 
