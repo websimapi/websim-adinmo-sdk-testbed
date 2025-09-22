@@ -14,6 +14,10 @@
                 baseUrl: config.baseUrl || 'https://api.adinmo.com',
                 enableAnalytics: config.enableAnalytics !== false,
                 enableIAP: config.enableIAP || false,
+                /* @tweakable enable ZBD cryptocurrency integration */
+                enableZBD: config.enableZBD || false,
+                /* @tweakable enable audio ad placements */
+                enableAudio: config.enableAudio || true,
                 pollingInterval: config.pollingInterval || 30000,
                 version: '1.0.0-js',
                 ...config
@@ -33,6 +37,29 @@
             // Message polling
             this.messagePoller = null;
             this.isPolling = false;
+            
+            // IAP Integration - from Unity AdInMoIapProxy
+            this.iapCallbacks = {
+                purchaseRequested: null,
+                getPriceCallback: null,
+                alreadyPurchasedCallback: null
+            };
+            
+            // ZBD Integration - from Unity ZBDController
+            this.zbdState = {
+                supported: false,
+                satsBalance: 0,
+                dollarBalance: 0,
+                gamerTag: '',
+                opCallback: null,
+                updateCallback: null
+            };
+            
+            // Audio system - from Unity audio wrapper
+            this.audioSystem = new AdInMoAudioSystem(this);
+            
+            // Enhanced input handling - from Unity AdinmoInputHandler
+            this.inputHandler = new AdInMoInputHandler(this);
             
             // Device info collection - similar to Unity collectDeviceInfo
             this.deviceInfo = this.collectDeviceInfo();
@@ -272,6 +299,205 @@
         }
 
         /**
+         * IAP Integration Methods - Based on Unity AdInMoIapProxy
+         */
+        
+        /**
+         * Set callback for when AdInMo requests an in-app purchase
+         * @param {function} callback Function to handle purchase requests
+         */
+        setInAppPurchaseCallback(callback) {
+            this.iapCallbacks.purchaseRequested = callback;
+            this.log('IAP purchase callback registered');
+        }
+
+        /**
+         * Set callback for getting localized price strings
+         * @param {function} callback Function that returns price string for item ID
+         */
+        setInAppPurchaseGetPriceCallback(callback) {
+            this.iapCallbacks.getPriceCallback = callback;
+            this.log('IAP price callback registered');
+        }
+
+        /**
+         * Set callback for checking if item is already purchased
+         * @param {function} callback Function that checks purchase status
+         */
+        setInAppPurchasedAlreadyCallback(callback) {
+            this.iapCallbacks.alreadyPurchasedCallback = callback;
+            this.log('IAP already purchased callback registered');
+        }
+
+        /**
+         * Report successful in-app purchase to AdInMo
+         */
+        inAppPurchaseSuccess(itemId, currency, price, transactionId) {
+            const payload = {
+                event: 'iap_success',
+                itemId,
+                currency,
+                price,
+                transactionId,
+                sessionId: this.sessionId,
+                timestamp: Date.now()
+            };
+            
+            this.sendAnalytics('/track/iap/success', payload);
+            this.triggerEvent('iapSuccess', { itemId, currency, price, transactionId });
+            this.log('IAP success reported:', payload);
+        }
+
+        /**
+         * Report failed in-app purchase to AdInMo
+         */
+        inAppPurchaseFailed(itemId, currency, price, reason) {
+            const payload = {
+                event: 'iap_failed',
+                itemId,
+                currency,
+                price,
+                reason,
+                sessionId: this.sessionId,
+                timestamp: Date.now()
+            };
+            
+            this.sendAnalytics('/track/iap/failed', payload);
+            this.triggerEvent('iapFailed', { itemId, currency, price, reason });
+            this.log('IAP failure reported:', payload);
+        }
+
+        /**
+         * ZBD Integration Methods - Based on Unity ZBDController
+         */
+        
+        /**
+         * Check if ZBD (Zebedee) cryptocurrency features are supported
+         */
+        get supportsZebedee() {
+            return this.config.enableZBD && this.zbdState.supported;
+        }
+
+        /**
+         * Get current ZBD sats balance
+         */
+        getZBDSatsBalance() {
+            return this.zbdState.satsBalance;
+        }
+
+        /**
+         * Get current ZBD dollar balance
+         */
+        getZBDDollarBalance() {
+            return this.zbdState.dollarBalance.toFixed(2);
+        }
+
+        /**
+         * Get ZBD gamer tag
+         */
+        getZBDGamerTag() {
+            return this.zbdState.gamerTag;
+        }
+
+        /**
+         * Set ZBD gamer tag
+         */
+        setZBDGamerTag(gamerTag) {
+            this.zbdState.gamerTag = gamerTag;
+            this.updateZBDProfile();
+        }
+
+        /**
+         * Set ZBD operation callback
+         */
+        setZBDOpCallback(callback) {
+            this.zbdState.opCallback = callback;
+        }
+
+        /**
+         * Set ZBD update callback
+         */
+        setZBDUpdateCallback(callback) {
+            this.zbdState.updateCallback = callback;
+        }
+
+        /**
+         * Initiate ZBD cash out
+         * @param {string} gamerTag ZBD gamer tag
+         * @param {number} amountMillisats Amount in millisats
+         */
+        async zbdCashOut(gamerTag, amountMillisats) {
+            try {
+                /* @tweakable ZBD cashout minimum amount */
+                const minCashout = 1000; // millisats
+                
+                if (amountMillisats < minCashout) {
+                    throw new Error(`Minimum cashout is ${minCashout} millisats`);
+                }
+                
+                const payload = {
+                    gamerTag,
+                    amount: amountMillisats,
+                    sessionId: this.sessionId,
+                    timestamp: Date.now()
+                };
+                
+                const response = await this.makeAPICall('/zbd/cashout', {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
+                
+                if (this.zbdState.opCallback) {
+                    this.zbdState.opCallback(
+                        response.success,
+                        gamerTag,
+                        response.newBalance || this.zbdState.satsBalance,
+                        response.balanceChange || 0,
+                        response.dollarBalance || this.zbdState.dollarBalance,
+                        response.feedback || ''
+                    );
+                }
+                
+                return response;
+                
+            } catch (error) {
+                this.log('ZBD cashout failed:', error);
+                if (this.zbdState.opCallback) {
+                    this.zbdState.opCallback(false, gamerTag, this.zbdState.satsBalance, 0, this.zbdState.dollarBalance, error.message);
+                }
+                throw error;
+            }
+        }
+
+        /**
+         * Update ZBD profile information
+         */
+        async updateZBDProfile() {
+            if (!this.config.enableZBD) return;
+            
+            try {
+                const payload = {
+                    gamerTag: this.zbdState.gamerTag,
+                    sessionId: this.sessionId
+                };
+                
+                const response = await this.makeAPICall('/zbd/profile', {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
+                
+                if (response.success) {
+                    this.zbdState.satsBalance = response.satsBalance || 0;
+                    this.zbdState.dollarBalance = response.dollarBalance || 0;
+                    this.zbdState.gamerTag = response.gamerTag || this.zbdState.gamerTag;
+                }
+                
+            } catch (error) {
+                this.log('ZBD profile update failed:', error);
+            }
+        }
+
+        /**
          * Create ad placement - equivalent to Unity AdinmoTexture
          */
         createPlacement(config) {
@@ -279,14 +505,32 @@
                 throw new Error('SDK not initialized. Call initialize() first.');
             }
 
-            const placement = new AdInMoPlacement({
-                ...config,
-                sdk: this,
-                sessionId: this.sessionId
-            });
+            let placement;
+            
+            /* @tweakable placement type detection and creation */
+            switch (config.placementType) {
+                case 'audio':
+                    placement = new AdInMoAudioPlacement({
+                        ...config,
+                        sdk: this,
+                        sessionId: this.sessionId,
+                        audioSystem: this.audioSystem
+                    });
+                    break;
+                case 'banner':
+                case 'rectangle':
+                case 'interstitial':
+                default:
+                    placement = new AdInMoPlacement({
+                        ...config,
+                        sdk: this,
+                        sessionId: this.sessionId
+                    });
+                    break;
+            }
 
             this.placements.set(placement.id, placement);
-            this.log(`Created placement: ${placement.id}`);
+            this.log(`Created ${config.placementType || 'standard'} placement: ${placement.id}`);
             
             return placement;
         }
@@ -841,7 +1085,7 @@
         }
 
         /**
-         * Collect device information - based on Unity device info collection
+         * Enhanced device info collection with touch support detection
          */
         collectDeviceInfo() {
             return {
@@ -866,13 +1110,14 @@
                     height: window.innerHeight
                 },
                 
-                // Device capabilities
+                // Enhanced device capabilities - from Unity input handler
                 devicePixelRatio: window.devicePixelRatio || 1,
                 timezone: this.getTimezone(),
                 cookieEnabled: navigator.cookieEnabled,
                 onLine: navigator.onLine,
-                touchSupport: 'ontouchstart' in window || navigator.maxTouchPoints > 0,
+                touchSupport: this.detectTouchSupport(),
                 webGL: this.detectWebGL(),
+                audioContext: this.detectAudioContext(),
                 
                 // Session information
                 url: window.location.href,
@@ -889,34 +1134,35 @@
             };
         }
 
-        getOperatingSystem() {
-            const userAgent = navigator.userAgent;
-            if (userAgent.indexOf('Windows') !== -1) return 'Windows';
-            if (userAgent.indexOf('Mac') !== -1) return 'macOS';
-            if (userAgent.indexOf('Linux') !== -1) return 'Linux';
-            if (userAgent.indexOf('Android') !== -1) return 'Android';
-            if (userAgent.indexOf('iOS') !== -1 || userAgent.indexOf('iPhone') !== -1 || userAgent.indexOf('iPad') !== -1) return 'iOS';
-            return 'Unknown';
+        /**
+         * Enhanced touch support detection - from Unity AdinmoInputHandler
+         */
+        detectTouchSupport() {
+            return {
+                supported: 'ontouchstart' in window || navigator.maxTouchPoints > 0,
+                maxTouchPoints: navigator.maxTouchPoints || 0,
+                multiTouch: navigator.maxTouchPoints > 1,
+                pointerEvents: 'PointerEvent' in window
+            };
         }
 
-        getBrowserName() {
-            const userAgent = navigator.userAgent;
-            if (userAgent.indexOf('Chrome') !== -1) return 'Chrome';
-            if (userAgent.indexOf('Firefox') !== -1) return 'Firefox';
-            if (userAgent.indexOf('Safari') !== -1) return 'Safari';
-            if (userAgent.indexOf('Edge') !== -1) return 'Edge';
-            if (userAgent.indexOf('Opera') !== -1) return 'Opera';
-            return 'Unknown';
+        /**
+         * Audio context detection for audio ads
+         */
+        detectAudioContext() {
+            try {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                if (AudioContext) {
+                    const ctx = new AudioContext();
+                    const supported = ctx.state !== undefined;
+                    ctx.close();
+                    return { supported, states: ['suspended', 'running', 'closed'] };
+                }
+            } catch (e) {
+                return { supported: false };
+            }
+            return { supported: false };
         }
-
-        getBrowserVersion() {
-            const userAgent = navigator.userAgent;
-            const match = userAgent.match(/(?:Chrome|Firefox|Safari|Edge|Opera)\/(\d+\.\d+)/);
-            return match ? match[1] : 'Unknown';
-        }
-
-        getTimezone() { try{const tz=Intl.DateTimeFormat().resolvedOptions().timeZone; if(tz) return tz;}catch(e){} const off=-new Date().getTimezoneOffset(), s=off>=0?'+':'-', a=Math.abs(off), hh=String(Math.floor(a/60)).padStart(2,'0'), mm=String(a%60).padStart(2,'0'); return `UTC${s}${hh}:${mm}`; }
-        detectWebGL() { try{const c=document.createElement('canvas'); const gl=c.getContext('webgl')||c.getContext('experimental-webgl'); if(!gl) return {supported:false}; const ext=gl.getExtension('WEBGL_debug_renderer_info'); const vendor=ext?gl.getParameter(ext.UNMASKED_VENDOR_WEBGL):gl.getParameter(gl.VENDOR); const renderer=ext?gl.getParameter(ext.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER); return {supported:true,vendor,renderer}; }catch(e){ return {supported:false}; } }
 
         /**
          * Event system
@@ -972,6 +1218,334 @@
             if (this.config.debugMode) {
                 console.log('[AdInMo SDK]', ...args);
             }
+        }
+    }
+
+    /**
+     * Enhanced Input Handler - Based on Unity AdinmoInputHandler
+     */
+    class AdInMoInputHandler {
+        constructor(sdk) {
+            this.sdk = sdk;
+            this.currentTouch = null;
+            this.setupInputListeners();
+        }
+
+        setupInputListeners() {
+            // Enhanced touch handling
+            document.addEventListener('touchstart', this.handleTouchStart.bind(this));
+            document.addEventListener('touchmove', this.handleTouchMove.bind(this));
+            document.addEventListener('touchend', this.handleTouchEnd.bind(this));
+            document.addEventListener('touchcancel', this.handleTouchCancel.bind(this));
+            
+            // Enhanced mouse handling for desktop
+            document.addEventListener('mousedown', this.handleMouseDown.bind(this));
+            document.addEventListener('mousemove', this.handleMouseMove.bind(this));
+            document.addEventListener('mouseup', this.handleMouseUp.bind(this));
+        }
+
+        /**
+         * Get potential touch position - Unity style
+         */
+        getPotentialTouchPos() {
+            if (this.currentTouch) {
+                return { x: this.currentTouch.clientX, y: this.currentTouch.clientY };
+            }
+            return { x: -1, y: -1 };
+        }
+
+        /**
+         * Get current touch - Unity style
+         */
+        getTouch() {
+            if (!this.currentTouch) return null;
+            
+            return {
+                position: { x: this.currentTouch.clientX, y: this.currentTouch.clientY },
+                phase: this.currentTouch.phase || 'unknown',
+                fingerId: this.currentTouch.identifier || 0
+            };
+        }
+
+        handleTouchStart(event) {
+            if (event.touches.length === 1) {
+                this.currentTouch = event.touches[0];
+                this.currentTouch.phase = 'began';
+            }
+        }
+
+        handleTouchMove(event) {
+            if (this.currentTouch && event.touches.length === 1) {
+                this.currentTouch = event.touches[0];
+                this.currentTouch.phase = 'moved';
+            }
+        }
+
+        handleTouchEnd(event) {
+            if (this.currentTouch) {
+                this.currentTouch.phase = 'ended';
+                this.currentTouch = null;
+            }
+        }
+
+        handleTouchCancel(event) {
+            if (this.currentTouch) {
+                this.currentTouch.phase = 'cancelled';
+                this.currentTouch = null;
+            }
+        }
+
+        handleMouseDown(event) {
+            this.currentTouch = {
+                clientX: event.clientX,
+                clientY: event.clientY,
+                phase: 'began',
+                identifier: 0
+            };
+        }
+
+        handleMouseMove(event) {
+            if (this.currentTouch && event.buttons > 0) {
+                this.currentTouch.clientX = event.clientX;
+                this.currentTouch.clientY = event.clientY;
+                this.currentTouch.phase = 'moved';
+            }
+        }
+
+        handleMouseUp(event) {
+            if (this.currentTouch) {
+                this.currentTouch.phase = 'ended';
+                this.currentTouch = null;
+            }
+        }
+
+        /**
+         * Vibrate device - Unity style
+         */
+        vibrate() {
+            if ('vibrate' in navigator) {
+                /* @tweakable vibration pattern for ad interactions */
+                navigator.vibrate([50, 100, 50]);
+            }
+        }
+    }
+
+    /**
+     * Audio System for Audio Ads - Based on Unity audio wrapper
+     */
+    class AdInMoAudioSystem {
+        constructor(sdk) {
+            this.sdk = sdk;
+            this.audioContext = null;
+            this.activeAudio = new Map();
+            this.init();
+        }
+
+        async init() {
+            if (!this.sdk.config.enableAudio) return;
+            
+            try {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                if (AudioContext) {
+                    this.audioContext = new AudioContext();
+                    this.sdk.log('Audio system initialized');
+                }
+            } catch (error) {
+                this.sdk.log('Audio system initialization failed:', error);
+            }
+        }
+
+        /**
+         * Download and prepare audio
+         */
+        async downloadAudio(url, timeout = 10000) {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), timeout);
+                
+                const response = await fetch(url, { signal: controller.signal });
+                clearTimeout(timeoutId);
+                
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                
+                const arrayBuffer = await response.arrayBuffer();
+                const audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
+                
+                return audioBuffer;
+                
+            } catch (error) {
+                this.sdk.log('Audio download failed:', error);
+                throw error;
+            }
+        }
+
+        /**
+         * Play audio
+         */
+        playAudio(audioBuffer, options = {}) {
+            if (!this.audioContext || !audioBuffer) return null;
+            
+            try {
+                const source = this.audioContext.createBufferSource();
+                source.buffer = audioBuffer;
+                
+                /* @tweakable audio volume for ads */
+                const gainNode = this.audioContext.createGain();
+                gainNode.gain.value = options.volume || 0.8;
+                
+                source.connect(gainNode);
+                gainNode.connect(this.audioContext.destination);
+                
+                const audioId = Date.now().toString();
+                this.activeAudio.set(audioId, { source, gainNode, startTime: Date.now() });
+                
+                source.onended = () => {
+                    this.activeAudio.delete(audioId);
+                };
+                
+                source.start(0);
+                return audioId;
+                
+            } catch (error) {
+                this.sdk.log('Audio playback failed:', error);
+                return null;
+            }
+        }
+
+        /**
+         * Stop audio
+         */
+        stopAudio(audioId) {
+            const audio = this.activeAudio.get(audioId);
+            if (audio) {
+                audio.source.stop();
+                this.activeAudio.delete(audioId);
+            }
+        }
+
+        /**
+         * Check if audio is playing
+         */
+        isPlaying(audioId) {
+            return this.activeAudio.has(audioId);
+        }
+
+        /**
+         * Get audio playback time
+         */
+        getAudioTime(audioId) {
+            const audio = this.activeAudio.get(audioId);
+            if (audio) {
+                return (Date.now() - audio.startTime) / 1000;
+            }
+            return 0;
+        }
+
+        cleanup() {
+            this.activeAudio.forEach((audio, id) => {
+                this.stopAudio(id);
+            });
+            
+            if (this.audioContext) {
+                this.audioContext.close();
+            }
+        }
+    }
+
+    /**
+     * Audio Ad Placement Class - Based on Unity audio placement concepts
+     */
+    class AdInMoAudioPlacement {
+        constructor(config) {
+            this.id = config.id || this.generateId();
+            this.sdk = config.sdk;
+            this.audioSystem = config.audioSystem;
+            
+            /* @tweakable audio ad configuration */
+            this.config = {
+                autoplay: config.autoplay || false,
+                volume: config.volume || 0.8,
+                loop: config.loop || false,
+                timeout: config.timeout || 10000
+            };
+            
+            this.isLoaded = false;
+            this.isPlaying = false;
+            this.currentAd = null;
+            this.audioBuffer = null;
+            this.audioId = null;
+        }
+
+        async loadAd() {
+            try {
+                this.sdk.log(`Loading audio ad for placement ${this.id}`);
+                
+                const adData = await this.sdk.loadAdForPlacement(this.id, {
+                    placementType: 'audio',
+                    aspectRatio: 'audio'
+                });
+                
+                if (adData.audioUrl) {
+                    this.audioBuffer = await this.audioSystem.downloadAudio(adData.audioUrl, this.config.timeout);
+                }
+                
+                this.currentAd = adData;
+                this.isLoaded = true;
+                
+                this.sdk.triggerEvent('adLoaded', { 
+                    placementId: this.id, 
+                    ad: this.currentAd 
+                });
+                
+                if (this.config.autoplay) {
+                    await this.play();
+                }
+                
+                return this.currentAd;
+                
+            } catch (error) {
+                this.sdk.log('Audio ad load failed:', error);
+                this.sdk.triggerEvent('adLoadFailed', { 
+                    placementId: this.id, 
+                    error: error.message 
+                });
+                throw error;
+            }
+        }
+
+        async play() {
+            if (!this.isLoaded || !this.audioBuffer) {
+                throw new Error('Audio ad not loaded');
+            }
+            
+            this.audioId = this.audioSystem.playAudio(this.audioBuffer, {
+                volume: this.config.volume,
+                loop: this.config.loop
+            });
+            
+            this.isPlaying = true;
+            
+            // Track impression for audio
+            await this.sdk.trackImpression(this.id, this.currentAd);
+            
+            this.sdk.triggerEvent('adShown', { 
+                placementId: this.id, 
+                ad: this.currentAd 
+            });
+        }
+
+        stop() {
+            if (this.audioId) {
+                this.audioSystem.stopAudio(this.audioId);
+                this.isPlaying = false;
+                this.audioId = null;
+                
+                this.sdk.triggerEvent('adHidden', { placementId: this.id });
+            }
+        }
+
+        generateId() {
+            return `audio_plc_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
         }
     }
 
@@ -1295,13 +1869,28 @@
     // Export to global scope
     global.AdInMoSDK = AdInMoSDK;
     global.AdInMoPlacement = AdInMoPlacement;
+    global.AdInMoAudioPlacement = AdInMoAudioPlacement;
+    global.AdInMoInputHandler = AdInMoInputHandler;
+    global.AdInMoAudioSystem = AdInMoAudioSystem;
 
     // Also support CommonJS and AMD if available
     if (typeof module !== 'undefined' && module.exports) {
-        module.exports = { AdInMoSDK, AdInMoPlacement };
+        module.exports = { 
+            AdInMoSDK, 
+            AdInMoPlacement, 
+            AdInMoAudioPlacement,
+            AdInMoInputHandler,
+            AdInMoAudioSystem
+        };
     } else if (typeof define === 'function' && define.amd) {
         define([], function() {
-            return { AdInMoSDK, AdInMoPlacement };
+            return { 
+                AdInMoSDK, 
+                AdInMoPlacement, 
+                AdInMoAudioPlacement,
+                AdInMoInputHandler,
+                AdInMoAudioSystem
+            };
         });
     }
 
