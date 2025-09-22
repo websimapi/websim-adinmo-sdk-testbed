@@ -251,6 +251,8 @@
                 const response = await fetch(url, requestOptions);
                 
                 if (!response.ok) {
+                    const errorText = await response.text().catch(() => 'Could not read error response body.');
+                    this.log(`API call HTTP error: ${response.status} ${response.statusText}`, errorText);
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
 
@@ -262,7 +264,20 @@
                 return await response.text();
                 
             } catch (error) {
-                this.log(`API call failed: ${url}`, error);
+                this.log(`API call failed to endpoint: ${endpoint}`);
+                this.log('Request URL:', url);
+                
+                if (error.name === 'TypeError' && error.message.toLowerCase().includes('failed to fetch')) {
+                    this.log('This is a common network error. Here are the likely causes:');
+                    this.log('1. CORS Policy: The server at the API endpoint does not allow requests from this origin. This is the most common issue. The server needs to return an `Access-Control-Allow-Origin: *` header (or your specific domain) in response to a pre-flight OPTIONS request.');
+                    this.log('2. Network Connectivity: Check your internet connection, DNS settings, or any firewalls/proxies that might be blocking the request.');
+                    this.log('3. Invalid URL / Server Down: Ensure the Base URL is correct and the API server is online and accessible from your network.');
+                    this.log('4. Mixed Content: If this test page is served over HTTP, it cannot make requests to an HTTPS API. Ensure both are using HTTPS.');
+                    this.log('Check the browser\'s developer console (usually F12) in the "Console" and "Network" tabs for more specific error messages from the browser itself.');
+                } else {
+                    this.log('An unexpected network error occurred:', error);
+                }
+                
                 throw error;
             }
         }

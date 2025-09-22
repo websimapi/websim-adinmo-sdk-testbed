@@ -1,6 +1,6 @@
 /* @tweakable default SDK config */
 const defaultConfig = {
-  gameKey: 'test-key-12345', // Using a dummy key for auto-init. Replace with your key via UI.
+  gameKey: '', // Using a dummy key for auto-init. Replace with your key via UI.
   environment: 'production',
   baseUrl: 'mock', // 'mock' or https://api.adinmo.com
   debugMode: false,
@@ -183,6 +183,14 @@ function bindUI() {
 
 window.addEventListener('DOMContentLoaded', () => {
   bindUI();
-  // Optional: auto init with mock for instant demo
-  initSDK().catch(e => logLine('auto init error', e.message));
+
+  // Try to get a game key from storage, if not, prompt user
+  const savedGameKey = localStorage.getItem('adinmo-game-key');
+  if (savedGameKey) {
+    $('#gameKey').value = savedGameKey;
+    // Optional: auto init with mock for instant demo
+    initSDK().catch(e => logLine('auto init error', e.message));
+  } else {
+    logLine('Enter your Game Key and click "Initialize SDK" to start.');
+  }
 });
