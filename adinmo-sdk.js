@@ -71,7 +71,7 @@
         }
 
         /**
-         * Initialize SDK - based on Unity AdinmoManager.Initialize()
+         * Initialize SDK - based on Unity AdmoManager.Initialize()
          */
         async initialize() {
             if (this.isInitialized) {
@@ -1132,6 +1132,42 @@
                 sdkVersion: this.config.version,
                 sdkPlatform: 'web'
             };
+        }
+
+        /**
+         * Get timezone information for device tracking
+         * @tweakable timezone detection method and format
+         */
+        getTimezone() {
+            try {
+                return {
+                    name: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                    offset: new Date().getTimezoneOffset(),
+                    /* @tweakable include detailed timezone info */
+                    offsetString: this.getTimezoneOffsetString(),
+                    locale: Intl.DateTimeFormat().resolvedOptions().locale
+                };
+            } catch (error) {
+                // Fallback for older browsers
+                return {
+                    name: 'Unknown',
+                    offset: new Date().getTimezoneOffset(),
+                    offsetString: this.getTimezoneOffsetString(),
+                    locale: navigator.language
+                };
+            }
+        }
+
+        /**
+         * Get timezone offset as string (e.g., "-05:00")
+         * @tweakable timezone offset format
+         */
+        getTimezoneOffsetString() {
+            const offset = new Date().getTimezoneOffset();
+            const sign = offset > 0 ? '-' : '+';
+            const hours = Math.floor(Math.abs(offset) / 60).toString().padStart(2, '0');
+            const minutes = (Math.abs(offset) % 60).toString().padStart(2, '0');
+            return `${sign}${hours}:${minutes}`;
         }
 
         /**
